@@ -2,77 +2,29 @@
 
 Independent AI prediction platform. Analyzes markets, extracts features, produces predictions, validates outcomes, and measures reliability. It does **not** execute trades.
 
-## Run locally (Docker)
-
-Needs Docker Desktop (or Docker Engine + Compose v2) and internet access so the worker can read public Binance klines.
+## Run locally
 
 ```bash
 git clone https://github.com/admin-xtinex/xora_trade_ai.git
 cd xora_trade_ai
+git pull
 docker compose up --build
 ```
 
-That starts:
+Then open the UI:
 
-- PostgreSQL 16 on `localhost:5432`
-- API on [http://localhost:8000](http://localhost:8000)
-- Worker that runs a prediction cycle immediately, then every 5 minutes
+**http://localhost:8000**
 
-Open interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+Also available:
 
-### First cycle by hand
+- API docs: http://localhost:8000/docs
+- Health: http://localhost:8000/api/v1/health
 
-```bash
-curl -X POST http://localhost:8000/api/v1/admin/cycles
-curl http://localhost:8000/api/v1/predictions
-curl http://localhost:8000/api/v1/modules
-```
+In the dashboard, click **Run cycle** to fetch Binance data, extract features, and write predictions. Validations appear after the 15m horizon.
 
-Useful routes:
-
-| Method | Path |
-|---|---|
-| GET | `/api/v1/health` |
-| GET | `/api/v1/predictions` |
-| GET | `/api/v1/predictions/{id}` |
-| GET | `/api/v1/qualified-coins` |
-| GET | `/api/v1/validations` |
-| POST | `/api/v1/admin/cycles` |
-
-Validation rows appear after the prediction horizon (default 15m). Until then `/validations` and `/qualified-coins` stay empty.
-
-### Optional pgAdmin
-
-```bash
-docker compose --profile dev up --build
-```
-
-Then open [http://localhost:5050](http://localhost:5050) (`admin@xora.local` / `admin`). Host name inside Compose is `postgres`.
-
-### Reset the database
+### Reset DB
 
 ```bash
 docker compose down -v
 docker compose up --build
 ```
-
-## Run without rebuilding the app containers
-
-If you already have Postgres from Compose and Python 3.12 locally:
-
-```bash
-docker compose up -d postgres
-python3.12 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -e .
-export DATABASE_URL=postgresql+psycopg://xora:xora@localhost:5432/xora
-uvicorn xora.main:app --reload --port 8000
-# another terminal:
-python -m xora.worker
-```
-
-Default universe: `BTCUSDT,ETHUSDT,SOLUSDT`. Override with `XORA_UNIVERSE`.
-
-## Architecture docs
-
-See `docs/` for the Phase 1 design. `TRADING_ENGINE_V2_DESIGN.md` is historical only.
