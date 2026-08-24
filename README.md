@@ -1,22 +1,78 @@
 # XORA Prediction AI
 
-Independent AI prediction platform. This service analyzes markets, extracts features, produces predictions, validates outcomes, and measures reliability. It does **not** execute trades.
+Independent AI prediction platform. Analyzes markets, extracts features, produces predictions, validates outcomes, and measures reliability. It does **not** execute trades.
 
-**Status:** Phase 1 architecture is complete and awaiting approval. Do not implement production code until the architecture review is signed off.
+## Run locally (Docker)
 
-## Documents
+Needs Docker Desktop (or Docker Engine + Compose v2) and internet access so the worker can read public Binance klines.
 
-| Deliverable | Path |
+```bash
+git clone https://github.com/admin-xtinex/xora_trade_ai.git
+cd xora_trade_ai
+docker compose up --build
+```
+
+That starts:
+
+- PostgreSQL 16 on `localhost:5432`
+- API on [http://localhost:8000](http://localhost:8000)
+- Worker that runs a prediction cycle immediately, then every 5 minutes
+
+Open interactive docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+
+### First cycle by hand
+
+```bash
+curl -X POST http://localhost:8000/api/v1/admin/cycles
+curl http://localhost:8000/api/v1/predictions
+curl http://localhost:8000/api/v1/modules
+```
+
+Useful routes:
+
+| Method | Path |
 |---|---|
-| Revised architecture | [docs/PHASE1_ARCHITECTURE.md](docs/PHASE1_ARCHITECTURE.md) |
-| Folder structure | [docs/FOLDER_STRUCTURE.md](docs/FOLDER_STRUCTURE.md) |
-| Dependency graph | [docs/DEPENDENCY_GRAPH.md](docs/DEPENDENCY_GRAPH.md) |
-| Database schema | [docs/DATABASE_SCHEMA.md](docs/DATABASE_SCHEMA.md) |
-| Docker architecture | [docs/DOCKER_ARCHITECTURE.md](docs/DOCKER_ARCHITECTURE.md) |
-| Module discovery & future AI | [docs/MODULE_SYSTEM.md](docs/MODULE_SYSTEM.md) |
-| Experiments & engine versions | [docs/EXPERIMENT_TRACKING.md](docs/EXPERIMENT_TRACKING.md) |
-| SQL draft | [schema/001_init.sql](schema/001_init.sql) |
+| GET | `/api/v1/health` |
+| GET | `/api/v1/predictions` |
+| GET | `/api/v1/predictions/{id}` |
+| GET | `/api/v1/qualified-coins` |
+| GET | `/api/v1/validations` |
+| POST | `/api/v1/admin/cycles` |
 
-## Historical note
+Validation rows appear after the prediction horizon (default 15m). Until then `/validations` and `/qualified-coins` stay empty.
 
-`TRADING_ENGINE_V2_DESIGN.md` is retained as a read-only reference of the previous *trading-engine* design. It is **not** the target architecture for this repository. XORA Prediction AI is a separate product boundary: prediction, validation, and qualification only.
+### Optional pgAdmin
+
+```bash
+docker compose --profile dev up --build
+```
+
+Then open [http://localhost:5050](http://localhost:5050) (`admin@xora.local` / `admin`). Host name inside Compose is `postgres`.
+
+### Reset the database
+
+```bash
+docker compose down -v
+docker compose up --build
+```
+
+## Run without rebuilding the app containers
+
+If you already have Postgres from Compose and Python 3.12 locally:
+
+```bash
+docker compose up -d postgres
+python3.12 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+pip install -e .
+export DATABASE_URL=postgresql+psycopg://xora:xora@localhost:5432/xora
+uvicorn xora.main:app --reload --port 8000
+# another terminal:
+python -m xora.worker
+```
+
+Default universe: `BTCUSDT,ETHUSDT,SOLUSDT`. Override with `XORA_UNIVERSE`.
+
+## Architecture docs
+
+See `docs/` for the Phase 1 design. `TRADING_ENGINE_V2_DESIGN.md` is historical only.
