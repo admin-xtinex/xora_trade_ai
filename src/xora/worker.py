@@ -14,20 +14,17 @@ def main() -> None:
     log = logging.getLogger("xora.worker")
     apply_schema()
     platform = PredictionPlatform()
-    log.info("worker started; cycle every %ss", settings.cycle_seconds)
+    log.info("worker started; waits for Start trading then runs IST 15m slots")
     while True:
         try:
             result = platform.run_cycle()
-            log.info(
-                "cycle complete predictions=%s validated=%s qualified=%s errors=%s",
-                len(result["predictions"]),
-                result["validated"],
-                result["qualified"],
-                result["errors"],
-            )
+            phase = result.get("phase")
+            log.info("phase=%s opened=%s closed=%s errors=%s", phase, result.get("opened"), result.get("closed"), result.get("errors"))
+            sleep_for = 10 if phase == "live" else 5 if phase == "waiting" else 15
         except Exception:
             log.exception("cycle crashed")
-        time.sleep(max(settings.cycle_seconds, 30))
+            sleep_for = 15
+        time.sleep(sleep_for)
 
 
 if __name__ == "__main__":

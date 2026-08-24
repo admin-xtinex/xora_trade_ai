@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from xora.application.pnl import compute_pnl
 from xora.persistence.queries import Analytics
 from xora.persistence.store import Store
 
@@ -20,29 +21,22 @@ def _features(raw: Any) -> dict:
 
 def _module_why(name: str | None, feats: dict, decision: str | None) -> str:
     name = name or "module"
-    if name == "rsi":
-        return f"RSI was {feats.get('rsi')}; that mapped to {decision}."
-    if name == "macd":
-        return f"MACD histogram {feats.get('histogram')} pointed {decision}."
-    if name == "trend":
-        return f"EMA trend_up={feats.get('trend_up')} so bias was {decision}."
-    if name == "bollinger":
-        return f"Bollinger position {feats.get('position')} suggested {decision}."
-    if name == "volume":
-        return f"Volume ratio {feats.get('volume_ratio')} confirmed {decision}."
-    if name == "momentum":
-        return f"10-bar ROC {feats.get('roc_10')} pointed {decision}."
-    if name == "atr":
-        return f"ATR% {feats.get('atr_pct')} was volatility context."
-    if name == "volatility":
-        return f"Realized vol {feats.get('realized_vol_20')} was context."
-    return f"{name} voted {decision}."
+    mapping = {
+        "rsi": f"RSI was {feats.get('rsi')}; that mapped to {decision}.",
+        "macd": f"MACD histogram {feats.get('histogram')} pointed {decision}.",
+        "trend": f"EMA trend_up={feats.get('trend_up')} so bias was {decision}.",
+        "bollinger": f"Bollinger position {feats.get('position')} suggested {decision}.",
+        "volume": f"Volume ratio {feats.get('volume_ratio')} confirmed {decision}.",
+        "momentum": f"10-bar ROC {feats.get('roc_10')} pointed {decision}.",
+        "atr": f"ATR% {feats.get('atr_pct')} was volatility context.",
+        "volatility": f"Realized vol {feats.get('realized_vol_20')} was context.",
+    }
+    return mapping.get(name, f"{name} voted {decision}.")
 
 
 def build_trade_analysis(trade: dict[str, Any]) -> dict[str, Any]:
     modules = trade.get("modules") or []
-    supporting = []
-    opposing = []
+    supporting, opposing = [], []
     side = trade.get("side")
     for m in modules:
         feats = _features(m.get("raw_features"))
@@ -57,69 +51,68 @@ def build_trade_analysis(trade: dict[str, Any]) -> dict[str, Any]:
             supporting.append(row)
         elif m.get("decision") in {"UP", "DOWN"}:
             opposing.append(row)
-    pnl = trade.get("pnl_usdt")
-    reason = trade.get("exit_reason")
-    if reason == "take_profit":
-        outcome = "Take profit hit. Price reached the planned TP."
-        wrong = None
-    elif reason == "stop_loss":
-        outcome = "Stop loss hit. Price moved against the entry."
-        wrong = (
-            f"Entered {side} at {trade.get('entry_price')} but price went to {trade.get('exit_price')}. "
-            + ("Supporting modules: " + ", ".join(r["module"] for r in supporting) if supporting else "Weak module agreement.")
+    analysis = trade.get("analysis") or {}
+    if isinstance(analysis, str):
+        analysis = json.loads(analysis)
+    proof = analysis.get("pnl_proof")
+    if not proof and trade.get("exit_price") is not None:
+        proof = compute_pnl(
+            side or "UP",
+            float(trade.get("entry_price") or 0),
+            float(trade.get("exit_price") or 0),
+            float(trade.get("qty") or 0),
+            float(trade.get("margin_usdt") or 10),
+            int(trade.get("leverage") or 15),
         )
+    reason = trade.get("exit_reason")
+    pnl = trade.get("pnl_usdt")
+    if reason == "take_profit":
+        outcome, wrong = "Take profit hit on live Binance price.", None
+    elif reason == "stop_loss":
+        outcome = "Stop loss hit on live Binance price."
+        wrong = f"Entered {side} at {trade.get('entry_price')} and live price printed {trade.get('exit_price')}."
     elif reason == "session_end":
-        outcome = "15-minute session ended so the demo trade was closed at live Binance price."
-        wrong = None if (pnl or 0) >= 0 else "Session clock expired while the move had not reached TP."
+        outcome = "15-minute IST slot ended. Closed at live Binance price."
+        wrong = None if (pnl or 0) >= 0 else "Slot ended before TP."
     elif trade.get("status") == "open":
-        outcome = "Trade is still open. TP/SL have not printed yet."
-        wrong = None
+        outcome, wrong = "Still open. Watching live 15m candle + ticker.", None
     else:
-        outcome = f"Closed ({reason})."
-        wrong = None if (pnl or 0) >= 0 else "Exit was against the predicted side."
+        outcome, wrong = f"Closed ({reason}).", None
     return {
         "id": trade.get("id"),
         "symbol": trade.get("coin_symbol") or trade.get("symbol"),
+        "engine_name": trade.get("engine_name"),
         "side": side,
         "status": trade.get("status"),
-        "bucket": trade.get("bucket") or trade.get("source"),
-        "margin_usdt": trade.get("margin_usdt"),
-        "leverage": trade.get("leverage"),
         "entry_price": trade.get("entry_price"),
         "exit_price": trade.get("exit_price"),
         "tp_price": trade.get("tp_price"),
         "sl_price": trade.get("sl_price"),
+        "qty": trade.get("qty"),
+        "margin_usdt": trade.get("margin_usdt"),
+        "leverage": trade.get("leverage"),
         "pnl_usdt": pnl,
-        "pnl_pct": trade.get("pnl_pct"),
-        "opened_at": trade.get("opened_at"),
-        "closed_at": trade.get("closed_at"),
         "why_entered": trade.get("entry_reason"),
         "why_exited": reason,
         "outcome": outcome,
         "what_went_wrong": wrong,
-        "analysis_data": trade.get("analysis"),
+        "pnl_proof": proof,
+        "analysis_data": analysis,
         "supporting_modules": supporting,
         "opposing_modules": opposing,
-        "confidence": trade.get("confidence"),
-        "score": trade.get("score"),
-        "engine_version": trade.get("engine_version"),
-        "strategy_name": trade.get("strategy_name"),
     }
 
 
 def build_analysis(detail: dict[str, Any], validation: dict[str, Any] | None = None) -> dict[str, Any]:
     analytics = Analytics()
-    trades = analytics.trades()
-    for trade in trades:
+    for trade in analytics.trades():
         if str(trade.get("prediction_id")) == str(detail.get("id")):
-            full = analytics.trade_detail(trade["id"]) or trade
-            return build_trade_analysis(full)
+            return build_trade_analysis(analytics.trade_detail(trade["id"]) or trade)
     return {"symbol": detail.get("symbol"), "why_entered": "No paper trade attached yet."}
 
 
 def attach_validation(store: Store, prediction_id: str) -> dict | None:
-    rows = store.list_rows("validations", limit=200)
-    for row in rows:
+    for row in store.list_rows("validations", limit=200):
         if str(row.get("prediction_id")) == str(prediction_id):
             return row
     return None

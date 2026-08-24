@@ -26,7 +26,7 @@ class EngineSelect(BaseModel):
 
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "xora-prediction-ai", "timeframe": "15m", "margin": 10, "leverage": 15}
+    return {"status": "ok", "timezone": "Asia/Kolkata", "timeframe": "15m"}
 
 
 @router.get("/session")
@@ -38,6 +38,11 @@ def session() -> dict:
     return snap
 
 
+@router.post("/admin/start")
+def start_trading() -> dict:
+    return platform().start_trading()
+
+
 @router.get("/engines")
 def engines() -> dict:
     registry = EngineRegistry()
@@ -47,8 +52,7 @@ def engines() -> dict:
 @router.post("/engines/active")
 def set_engines(body: EngineSelect) -> dict:
     registry = EngineRegistry()
-    active = registry.set_active(body.keys)
-    return {"active": active, "engines": registry.all_meta()}
+    return {"active": registry.set_active(body.keys), "engines": registry.all_meta()}
 
 
 @router.get("/coins")
