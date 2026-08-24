@@ -1,0 +1,105 @@
+# Example module configuration. Implementation will load a file in this shape.
+
+modules:
+  trend:
+    enabled: true
+    weight: 1.0
+    priority: 10
+    configuration:
+      ema_fast: 20
+      ema_slow: 50
+  momentum:
+    enabled: true
+    weight: 1.0
+    priority: 20
+    configuration: {}
+  volatility:
+    enabled: true
+    weight: 0.8
+    priority: 30
+    configuration: {}
+  volume:
+    enabled: true
+    weight: 0.8
+    priority: 40
+    configuration:
+      lookback: 20
+  rsi:
+    enabled: true
+    weight: 1.0
+    priority: 50
+    configuration:
+      period: 14
+  macd:
+    enabled: true
+    weight: 1.0
+    priority: 60
+    configuration:
+      fast: 12
+      slow: 26
+      signal: 9
+  bollinger:
+    enabled: true
+    weight: 0.7
+    priority: 70
+    configuration:
+      period: 20
+      std: 2.0
+  atr:
+    enabled: true
+    weight: 0.5
+    priority: 80
+    configuration:
+      period: 14
+
+  support_resistance:
+    enabled: false
+    weight: 1.2
+    priority: 15
+    configuration: {}
+  news_sentiment:
+    enabled: false
+    weight: 0.6
+    priority: 200
+    configuration:
+      run_on: top_n
+  chart_pattern:
+    enabled: false
+    weight: 0.8
+    priority: 90
+    configuration: {}
+  vision_ai:
+    enabled: false
+    weight: 0.8
+    priority: 210
+    configuration:
+      run_on: top_n
+  llm_reasoning:
+    enabled: false
+    weight: 0.5
+    priority: 220
+    configuration:
+      run_on: top_n
+  order_book:
+    enabled: false
+    weight: 0.7
+    priority: 100
+    configuration: {}
+  funding_rate:
+    enabled: false
+    weight: 0.6
+    priority: 110
+    configuration:
+      run_on: top_n
+  liquidation:
+    enabled: false
+    weight: 0.6
+    priority: 120
+    configuration:
+      run_on: top_n
+
+decision:
+  strategy_name: rules.weighted_v1
+  model_name: none
+  experiment_name: production
+  shadow_strategies: []

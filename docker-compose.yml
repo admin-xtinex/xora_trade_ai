@@ -1,0 +1,65 @@
+# Target Compose topology for XORA Prediction AI.
+# Dockerfiles and application code are intentionally absent until architecture approval.
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: xora
+      POSTGRES_PASSWORD: xora
+      POSTGRES_DB: xora
+    ports:
+      - "5432:5432"
+    volumes:
+      - xora_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U xora -d xora"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [xora]
+
+  api:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [xora]
+
+  worker:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    environment:
+      DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [xora]
+
+  pgadmin:
+    image: dpage/pgadmin4
+    profiles: ["dev"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@xora.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [xora]
+
+networks:
+  xora:
+
+volumes:
+  xora_pg_data:
