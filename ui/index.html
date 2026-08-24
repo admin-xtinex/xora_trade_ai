@@ -8,13 +8,15 @@
     :root { --bg:#070b16; --panel:#10182f; --line:#26345c; --text:#eaf0ff; --muted:#8ea0c7; --up:#3ee0a2; --down:#ff6b7a; --mid:#f0c14b; --accent:#7db2ff; }
     *{box-sizing:border-box}
     body{margin:0;font-family:Inter,system-ui,sans-serif;background:radial-gradient(900px 500px at 0 -10%,#18244a,var(--bg));color:var(--text)}
-    header{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:16px 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+    header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:16px 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
     h1{margin:0;font-size:18px}
     .sub{color:var(--muted);font-size:12px;margin-top:4px}
     button{border:0;border-radius:8px;padding:9px 12px;font-weight:700;cursor:pointer;background:var(--accent);color:#071018}
     button.secondary{background:#1c2748;color:var(--text)}
     .chip{background:#1c2748;color:var(--muted);border:0;border-radius:8px;padding:8px 10px;font-weight:700;cursor:pointer}
     .chip.on{background:var(--accent);color:#071018}
+    .engine{display:inline-flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:120px;text-align:left}
+    .engine small{font-weight:500;opacity:.8}
     .ok{color:var(--up)} .bad{color:var(--down)}
     .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:16px 22px 0}
     .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
@@ -34,23 +36,24 @@
 <header>
   <div>
     <h1>XORA 15m desk</h1>
-    <div class="sub">50 coins · demo like real · margin 10 USDT · 15x · warmup 5m · min 3 trades / session</div>
+    <div class="sub">Select one or more engines. Each engine owns its own entry, exit, TP and SL. All three can run at once.</div>
   </div>
   <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <span id="ws">connecting…</span>
-    <button class="chip on" data-status="">All trades</button>
-    <button class="chip" data-status="open">Open</button>
-    <button class="chip" data-status="closed">Closed</button>
     <button class="secondary" id="refresh">Refresh</button>
     <button id="cycle">Run cycle</button>
   </div>
 </header>
+<section class="card" style="margin:16px 22px 0">
+  <div class="k">Engines</div>
+  <div id="engineBar" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
+</section>
 <section class="grid">
   <div class="card"><div class="k">Phase</div><div id="phase">—</div></div>
   <div class="card"><div class="k">Open</div><div id="nOpen">0</div></div>
   <div class="card"><div class="k">Closed</div><div id="nClosed">0</div></div>
   <div class="card"><div class="k">Net PnL</div><div id="pnl">0</div></div>
-  <div class="card"><div class="k">Session end</div><div id="ends">—</div></div>
+  <div class="card"><div class="k">Active engines</div><div id="activeN">0</div></div>
 </section>
 <main>
   <div class="card" id="tableWrap"></div>
@@ -58,64 +61,75 @@
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
-  let status = "";
+  let engines = [];
+  let active = [];
   const pctp = (v) => v == null ? "—" : Number(v).toFixed(6);
   const pill = (d) => `<span class="pill ${d || "NEUTRAL"}">${d || "—"}</span>`;
-  const when = (v) => v ? new Date(v).toLocaleString() : "—";
+  const label = (key) => (engines.find(e => e.key === key) || {}).name || key || "—";
   async function get(path) {
     const res = await fetch(path);
     if (!res.ok) throw new Error(path + " " + res.status);
     return res.json();
   }
+  function renderEngines() {
+    $("engineBar").innerHTML = engines.map(e => `
+      <button class="chip engine ${active.includes(e.key) ? "on" : ""}" data-key="${e.key}">
+        ${e.name}
+        <small>TP ${(e.tp_pct*100).toFixed(1)}% · SL ${(e.sl_pct*100).toFixed(1)}%</small>
+      </button>`).join("");
+    $("activeN").textContent = active.map(label).join(", ") || "none";
+  }
+  async function toggleEngine(key) {
+    const next = active.includes(key) ? active.filter(k => k !== key) : active.concat(key);
+    if (!next.length) return alert("Select at least one engine");
+    const res = await fetch("/api/v1/engines/active", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({keys: next})
+    });
+    const data = await res.json();
+    active = data.active || next;
+    renderEngines();
+  }
   async function load() {
     const snap = await get("/api/v1/session").catch(() => ({}));
+    engines = snap.engines || engines;
+    active = snap.active_engines || active;
+    renderEngines();
     $("nOpen").textContent = snap.open_trades ?? 0;
     $("nClosed").textContent = snap.closed_trades ?? 0;
     $("pnl").textContent = (snap.net_pnl ?? 0).toFixed(2) + " USDT";
     $("phase").textContent = snap.session ? snap.session.status : "idle";
-    $("ends").textContent = snap.session ? when(snap.session.ends_at) : "—";
-    const q = status ? ("?status=" + status) : "";
-    const rows = await get("/api/v1/trades" + q).catch(() => []);
+    const rows = await get("/api/v1/trades").catch(() => []);
     if (!rows.length) {
-      $("tableWrap").innerHTML = "<div class='sub'>No trades yet. Wait for warmup or run a cycle.</div>";
+      $("tableWrap").innerHTML = "<div class='sub'>No trades yet. Select engines, then run a cycle after warmup.</div>";
       return;
     }
     $("tableWrap").innerHTML = `<table><thead><tr>
-      <th>Coin</th><th>Side</th><th>Entry</th><th>TP</th><th>SL</th><th>Exit</th><th>PnL</th><th>Status</th>
+      <th>Engine</th><th>Coin</th><th>Side</th><th>Entry</th><th>TP</th><th>SL</th><th>Exit</th><th>PnL</th><th>Status</th>
     </tr></thead><tbody>` + rows.map(r => `<tr data-id="${r.id}">
-      <td>${r.symbol}</td><td>${pill(r.side)}</td><td>${pctp(r.entry_price)}</td>
-      <td>${pctp(r.tp_price)}</td><td>${pctp(r.sl_price)}</td><td>${pctp(r.exit_price)}</td>
+      <td>${label(r.engine_name)}</td><td>${r.symbol}</td><td>${pill(r.side)}</td>
+      <td>${pctp(r.entry_price)}</td><td>${pctp(r.tp_price)}</td><td>${pctp(r.sl_price)}</td>
+      <td>${pctp(r.exit_price)}</td>
       <td>${r.pnl_usdt == null ? "—" : Number(r.pnl_usdt).toFixed(2)}</td>
-      <td>${r.status}${r.bucket ? " · " + r.bucket : ""}</td>
+      <td>${r.status}</td>
     </tr>`).join("") + "</tbody></table>";
   }
   async function show(id) {
     const t = await get("/api/v1/trades/" + id);
     $("detail").innerHTML = `
-      <h3 style="margin:0 0 8px">${t.symbol} ${pill(t.side)}</h3>
-      <div class="sub">${t.bucket || ""} · margin ${t.margin_usdt} · ${t.leverage}x</div>
-      <p class="why"><b>Entry price:</b> ${pctp(t.entry_price)}<br>
-      <b>Exit price:</b> ${pctp(t.exit_price)}<br>
+      <h3 style="margin:0 0 8px">${label(t.engine_name || (t.analysis_data||{}).engine)} · ${t.symbol} ${pill(t.side)}</h3>
+      <div class="sub">This engine owned entry, TP, SL and exit.</div>
+      <p class="why"><b>Entry:</b> ${pctp(t.entry_price)} · <b>Exit:</b> ${pctp(t.exit_price)}<br>
       <b>TP:</b> ${pctp(t.tp_price)} · <b>SL:</b> ${pctp(t.sl_price)}<br>
       <b>PnL:</b> ${t.pnl_usdt == null ? "open" : Number(t.pnl_usdt).toFixed(4) + " USDT"}</p>
       <p class="why"><b>Why entered:</b> ${t.why_entered || "—"}</p>
       <p class="why"><b>Why exited:</b> ${t.why_exited || "still open"}</p>
       <p class="why"><b>Outcome:</b> ${t.outcome || "—"}</p>
-      <p class="why"><b>What went wrong:</b> ${t.what_went_wrong || "Nothing recorded as an error."}</p>
-      <div class="k">Module votes</div>
-      <table><thead><tr><th>Module</th><th>Vote</th><th>Why</th></tr></thead><tbody>
-        ${(t.supporting_modules||[]).concat(t.opposing_modules||[]).map(m =>
-          `<tr><td>${m.module}</td><td>${pill(m.decision)}</td><td>${m.why}</td></tr>`
-        ).join("") || "<tr><td colspan=3>No module snapshot</td></tr>"}
-      </tbody></table>`;
+      <p class="why"><b>What went wrong:</b> ${t.what_went_wrong || "Nothing recorded as an error."}</p>`;
   }
-  document.querySelectorAll(".chip").forEach(btn => {
-    btn.onclick = () => {
-      document.querySelectorAll(".chip").forEach(b => b.classList.remove("on"));
-      btn.classList.add("on");
-      status = btn.dataset.status;
-      load();
-    };
+  $("engineBar").addEventListener("click", ev => {
+    const btn = ev.target.closest("[data-key]");
+    if (btn) toggleEngine(btn.dataset.key);
   });
   $("tableWrap").addEventListener("click", ev => {
     const tr = ev.target.closest("tr[data-id]");
