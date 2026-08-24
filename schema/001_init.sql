@@ -1,9 +1,6 @@
--- XORA Prediction AI — Phase 1 schema draft
--- Not applied until architecture approval + Alembic implementation.
-
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
-CREATE TABLE coins (
+CREATE TABLE IF NOT EXISTS coins (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     symbol          TEXT NOT NULL,
     base_asset      TEXT NOT NULL,
@@ -17,7 +14,7 @@ CREATE TABLE coins (
     UNIQUE (venue, symbol, instrument_type)
 );
 
-CREATE TABLE market_snapshots (
+CREATE TABLE IF NOT EXISTS market_snapshots (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     coin_id         UUID NOT NULL REFERENCES coins(id),
     venue           TEXT NOT NULL,
@@ -32,10 +29,10 @@ CREATE TABLE market_snapshots (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_snapshots_coin_asof ON market_snapshots (coin_id, as_of DESC);
-CREATE INDEX idx_snapshots_tf_asof ON market_snapshots (timeframe, as_of DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_coin_asof ON market_snapshots (coin_id, as_of DESC);
+CREATE INDEX IF NOT EXISTS idx_snapshots_tf_asof ON market_snapshots (timeframe, as_of DESC);
 
-CREATE TABLE feature_sets (
+CREATE TABLE IF NOT EXISTS feature_sets (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     coin_id          UUID NOT NULL REFERENCES coins(id),
     snapshot_id      UUID NOT NULL REFERENCES market_snapshots(id),
@@ -44,9 +41,9 @@ CREATE TABLE feature_sets (
     created_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_feature_sets_coin ON feature_sets (coin_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_feature_sets_coin ON feature_sets (coin_id, created_at DESC);
 
-CREATE TABLE feature_set_items (
+CREATE TABLE IF NOT EXISTS feature_set_items (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     feature_set_id   UUID NOT NULL REFERENCES feature_sets(id) ON DELETE CASCADE,
     module_name      TEXT NOT NULL,
@@ -60,7 +57,7 @@ CREATE TABLE feature_set_items (
     UNIQUE (feature_set_id, module_name)
 );
 
-CREATE TABLE predictions (
+CREATE TABLE IF NOT EXISTS predictions (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     coin_id          UUID NOT NULL REFERENCES coins(id),
     feature_set_id   UUID NOT NULL REFERENCES feature_sets(id),
@@ -82,11 +79,11 @@ CREATE TABLE predictions (
     metadata         JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
-CREATE INDEX idx_predictions_coin ON predictions (coin_id, predicted_at DESC);
-CREATE INDEX idx_predictions_exp ON predictions (experiment_name, strategy_name, predicted_at DESC);
-CREATE INDEX idx_predictions_due ON predictions (horizon_at);
+CREATE INDEX IF NOT EXISTS idx_predictions_coin ON predictions (coin_id, predicted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_predictions_exp ON predictions (experiment_name, strategy_name, predicted_at DESC);
+CREATE INDEX IF NOT EXISTS idx_predictions_due ON predictions (horizon_at);
 
-CREATE TABLE prediction_modules (
+CREATE TABLE IF NOT EXISTS prediction_modules (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     prediction_id    UUID NOT NULL REFERENCES predictions(id) ON DELETE CASCADE,
     module_name      TEXT NOT NULL,
@@ -99,7 +96,7 @@ CREATE TABLE prediction_modules (
     UNIQUE (prediction_id, module_name)
 );
 
-CREATE TABLE validations (
+CREATE TABLE IF NOT EXISTS validations (
     id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     prediction_id        UUID NOT NULL UNIQUE REFERENCES predictions(id),
     predicted_direction  TEXT NOT NULL,
@@ -117,7 +114,7 @@ CREATE TABLE validations (
     extras               JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 
-CREATE TABLE rolling_scores (
+CREATE TABLE IF NOT EXISTS rolling_scores (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     coin_id          UUID NOT NULL REFERENCES coins(id),
     window           TEXT NOT NULL,
@@ -133,7 +130,7 @@ CREATE TABLE rolling_scores (
     UNIQUE (coin_id, window, experiment_name, strategy_name)
 );
 
-CREATE TABLE qualified_coins (
+CREATE TABLE IF NOT EXISTS qualified_coins (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     coin_id          UUID NOT NULL REFERENCES coins(id),
     experiment_name  TEXT NOT NULL,
@@ -146,9 +143,9 @@ CREATE TABLE qualified_coins (
     is_current       BOOLEAN NOT NULL DEFAULT TRUE
 );
 
-CREATE INDEX idx_qualified_current ON qualified_coins (is_current, experiment_name);
+CREATE INDEX IF NOT EXISTS idx_qualified_current ON qualified_coins (is_current, experiment_name);
 
-CREATE TABLE module_registry (
+CREATE TABLE IF NOT EXISTS module_registry (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     module_name      TEXT NOT NULL UNIQUE,
     module_version   TEXT NOT NULL,
@@ -160,7 +157,7 @@ CREATE TABLE module_registry (
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE system_configuration (
+CREATE TABLE IF NOT EXISTS system_configuration (
     key              TEXT PRIMARY KEY,
     value            JSONB NOT NULL,
     updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
