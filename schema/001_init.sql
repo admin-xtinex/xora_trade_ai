@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS validations (
 CREATE TABLE IF NOT EXISTS rolling_scores (
     id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     coin_id          UUID NOT NULL REFERENCES coins(id),
-    window           TEXT NOT NULL,
+    score_window     TEXT NOT NULL,
     experiment_name  TEXT NOT NULL,
     strategy_name    TEXT NOT NULL,
     sample_size      INTEGER NOT NULL,
@@ -127,7 +127,7 @@ CREATE TABLE IF NOT EXISTS rolling_scores (
     avg_magnitude_error DOUBLE PRECISION,
     score            DOUBLE PRECISION,
     computed_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (coin_id, window, experiment_name, strategy_name)
+    UNIQUE (coin_id, score_window, experiment_name, strategy_name)
 );
 
 CREATE TABLE IF NOT EXISTS qualified_coins (
