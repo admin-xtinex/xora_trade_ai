@@ -25,10 +25,15 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://xora:xora@localhost:5432/xora",
         alias="DATABASE_URL",
     )
-    universe: str = Field(default="BTCUSDT,ETHUSDT,SOLUSDT", alias="XORA_UNIVERSE")
-    timeframe: str = Field(default="15m", alias="XORA_TIMEFRAME")
-    horizon: str = Field(default="15m", alias="XORA_HORIZON")
+    universe: str = Field(default="", alias="XORA_UNIVERSE")
+    timeframe: str = Field(default="5m", alias="XORA_TIMEFRAME")
+    horizon: str = Field(default="5m", alias="XORA_HORIZON")
     cycle_seconds: int = Field(default=300, alias="XORA_CYCLE_SECONDS")
+    universe_size: int = Field(default=50, alias="XORA_UNIVERSE_SIZE")
+    paper_margin_usdt: float = Field(default=10.0, alias="XORA_PAPER_MARGIN")
+    paper_leverage: int = Field(default=20, alias="XORA_PAPER_LEVERAGE")
+    paper_hold_minutes: int = Field(default=5, alias="XORA_PAPER_HOLD_MINUTES")
+    min_trades_for_top: int = Field(default=2, alias="XORA_MIN_TRADES_TOP")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     binance_base_url: str = Field(default="https://api.binance.com", alias="BINANCE_BASE_URL")
 
@@ -50,7 +55,8 @@ class Settings(BaseSettings):
         cfg = self.load_yaml("default.yaml")
         cfg.setdefault("timeframe", self.timeframe)
         cfg.setdefault("horizon", self.horizon)
-        cfg.setdefault("universe", self.symbols)
+        if self.symbols:
+            cfg["universe"] = self.symbols
         return cfg
 
     def modules_config(self) -> dict[str, Any]:

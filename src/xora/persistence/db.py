@@ -20,11 +20,12 @@ def get_engine() -> Engine:
 
 def apply_schema() -> None:
     settings = get_settings()
-    sql_path = settings.root / "schema" / "001_init.sql"
-    if not sql_path.exists():
-        sql_path = Path("/app/schema/001_init.sql")
-    raw = sql_path.read_text()
-    statements = [part.strip() for part in raw.split(";") if part.strip()]
+    schema_dir = settings.root / "schema"
+    if not schema_dir.exists():
+        schema_dir = Path("/app/schema")
+    files = sorted(schema_dir.glob("*.sql"))
     with get_engine().begin() as conn:
-        for statement in statements:
-            conn.execute(text(statement))
+        for sql_path in files:
+            raw = sql_path.read_text()
+            for statement in [part.strip() for part in raw.split(";") if part.strip()]:
+                conn.execute(text(statement))

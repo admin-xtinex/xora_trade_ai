@@ -10,6 +10,7 @@ services:
     volumes:
       - xora_pg_data:/var/lib/postgresql/data
       - ./schema/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
+      - ./schema/002_paper.sql:/docker-entrypoint-initdb.d/002_paper.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U xora -d xora"]
       interval: 5s
@@ -23,9 +24,12 @@ services:
       dockerfile: Dockerfile.api
     environment:
       DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
-      XORA_UNIVERSE: BTCUSDT,ETHUSDT,SOLUSDT
-      XORA_TIMEFRAME: 15m
-      XORA_HORIZON: 15m
+      XORA_TIMEFRAME: 5m
+      XORA_HORIZON: 5m
+      XORA_CYCLE_SECONDS: "300"
+      XORA_UNIVERSE_SIZE: "50"
+      XORA_PAPER_MARGIN: "10"
+      XORA_PAPER_LEVERAGE: "20"
       LOG_LEVEL: INFO
     ports:
       - "8000:8000"
@@ -40,10 +44,12 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
-      XORA_UNIVERSE: BTCUSDT,ETHUSDT,SOLUSDT
-      XORA_TIMEFRAME: 15m
-      XORA_HORIZON: 15m
+      XORA_TIMEFRAME: 5m
+      XORA_HORIZON: 5m
       XORA_CYCLE_SECONDS: "300"
+      XORA_UNIVERSE_SIZE: "50"
+      XORA_PAPER_MARGIN: "10"
+      XORA_PAPER_LEVERAGE: "20"
       LOG_LEVEL: INFO
     depends_on:
       postgres:
