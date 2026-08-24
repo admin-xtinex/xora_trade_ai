@@ -12,6 +12,8 @@ class WeightedRulesStrategy:
         self,
         results: list[FeatureResult],
         registered: list[RegisteredModule],
+        force: bool = True,
+        fallback_change: float | None = None,
     ) -> DecisionResult:
         weights = {item.analyzer.key: item.config for item in registered}
         contributions: list[ModuleContribution] = []
@@ -47,7 +49,18 @@ class WeightedRulesStrategy:
             direction = Direction.DOWN
         else:
             direction = Direction.NEUTRAL
-        confidence = min(0.95, abs(score) / max(weight_sum, 1e-6))
+        forced = False
+        if force and direction == Direction.NEUTRAL:
+            forced = True
+            if score > 0:
+                direction = Direction.UP
+            elif score < 0:
+                direction = Direction.DOWN
+            elif (fallback_change or 0) >= 0:
+                direction = Direction.UP
+            else:
+                direction = Direction.DOWN
+        confidence = min(0.95, max(abs(score) / max(weight_sum, 1e-6), 0.15 if forced else 0.0))
         magnitude = atr_pct * 1.5 if atr_pct is not None else None
         regime = "volatile" if (atr_pct or 0) > 0.02 else "normal"
         return DecisionResult(
@@ -57,7 +70,7 @@ class WeightedRulesStrategy:
             magnitude=magnitude,
             market_regime=regime,
             contributions=contributions,
-            metadata={"strategy": self.name},
+            metadata={"strategy": self.name, "forced": forced},
         )
 
 
@@ -65,5 +78,11 @@ class DecisionEngine:
     def __init__(self) -> None:
         self.strategy = WeightedRulesStrategy()
 
-    def decide(self, results: list[FeatureResult], registered: list[RegisteredModule]) -> DecisionResult:
-        return self.strategy.decide(results, registered)
+    def decide(
+        self,
+        results: list[FeatureResult],
+        registered: list[RegisteredModule],
+        force: bool = True,
+        fallback_change: float | None = None,
+    ) -> DecisionResult:
+        return self.strategy.decide(results, registered, force=force, fallback_change=fallback_change)
