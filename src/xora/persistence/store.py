@@ -15,6 +15,28 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _serialize_row(row: dict[str, Any]) -> dict[str, Any]:
+    item = dict(row)
+    for key, value in list(item.items()):
+        if hasattr(value, "hex"):
+            item[key] = str(value)
+        elif hasattr(value, "isoformat"):
+            item[key] = value.isoformat()
+    return item
+
+
+LIST_SQL = {
+    "coins": "SELECT * FROM coins ORDER BY symbol",
+    "snapshots": "SELECT id, coin_id, venue, timeframe, as_of, payload_hash FROM market_snapshots ORDER BY as_of DESC LIMIT :limit",
+    "features": "SELECT * FROM feature_sets ORDER BY created_at DESC LIMIT :limit",
+    "predictions": "SELECT p.*, c.symbol FROM predictions p JOIN coins c ON c.id = p.coin_id ORDER BY p.predicted_at DESC LIMIT :limit",
+    "validations": "SELECT * FROM validations ORDER BY validated_at DESC LIMIT :limit",
+    "modules": "SELECT * FROM module_registry ORDER BY priority, module_name",
+    "qualified": "SELECT q.*, c.symbol FROM qualified_coins q JOIN coins c ON c.id = q.coin_id WHERE q.is_current ORDER BY q.score DESC",
+    "scores": "SELECT r.*, c.symbol FROM rolling_scores r JOIN coins c ON c.id = r.coin_id ORDER BY r.score DESC NULLS LAST",
+}
+
+
 class Store:
     def __init__(self) -> None:
         self.engine = get_engine()
@@ -263,17 +285,21 @@ class Store:
         with self.engine.begin() as conn:
             rows = conn.execute(
                 text(
-                    """
-                    SELECT r.*, c.symbol
-                    FROM rolling_scores r
-                    JOIN coins c ON c.id = r.coin_id
-                    ORDER BY r.score DESC NULLS LAST
-                    """
+                    "SELECT r.*, c.symbol FROM rolling_scores r JOIN coins c ON c.id = r.coin_id ORDER BY r.score DESC NULLS LAST"
                 )
             ).mappings().all()
             return [dict(x) for x in rows]
 
-    def upsert_module(self, name: str, version: str, enabled: bool, weight: float, priority: int, configuration: dict[str, Any], checksum: str) -> None:
+    def upsert_module(
+        self,
+        name: str,
+        version: str,
+        enabled: bool,
+        weight: float,
+        priority: int,
+        configuration: dict[str, Any],
+        checksum: str,
+    ) -> None:
         with self.engine.begin() as conn:
             conn.execute(
                 text(
@@ -315,52 +341,16 @@ class Store:
             )
 
     def list_rows(self, table: str, limit: int = 50) -> list[dict[str, Any]]:
-        allowed = {
-            "coins": "SELECT * FROM coins ORDER BY symbol",
-            "snapshots": "SELECT id, coin_id, venue, timeframe, as_of, payload_hash FROM market_snapshots ORDER BY as_of DESC LIMIT :limit",
-            "features": "SELECT * FROM feature_sets ORDER BY created_at DESC LIMIT :limit",
-            "predictions": """
-                SELECT p.*, c.symbol
-                FROM predictions p JOIN coins c ON c.id = p.coin_id
-                ORDER BY p.predicted_at DESC LIMIT :limit
-            "",
-            "validations": "SELECT * FROM validations ORDER BY validated_at DESC LIMIT :limit",
-            "modules": "SELECT * FROM module_registry ORDER BY priority, module_name",
-            "qualified": """
-                SELECT q.*, c.symbol
-                FROM qualified_coins q JOIN coins c ON c.id = q.coin_id
-                WHERE q.is_current
-                ORDER BY q.score DESC
-            "",
-            "scores": """
-                SELECT r.*, c.symbol
-                FROM rolling_scores r JOIN coins c ON c.id = r.coin_id
-                ORDER BY r.score DESC NULLS LAST
-            "",
-        }
-        sql = allowed[table]
+        sql = LIST_SQL[table]
         with self.engine.begin() as conn:
             rows = conn.execute(text(sql), {"limit": limit}).mappings().all()
-            out = []
-            for row in rows:
-                item = dict(row)
-                for key, value in list(item.items()):
-                    if hasattr(value, "hex"):
-                        item[key] = str(value)
-                    elif hasattr(value, "isoformat"):
-                        item[key] = value.isoformat()
-                out.append(item)
-            return out
+            return [_serialize_row(dict(row)) for row in rows]
 
     def prediction_detail(self, prediction_id: str) -> dict[str, Any] | None:
         with self.engine.begin() as conn:
             pred = conn.execute(
                 text(
-                    """
-                    SELECT p.*, c.symbol
-                    FROM predictions p JOIN coins c ON c.id = p.coin_id
-                    WHERE p.id = CAST(:id AS uuid)
-                    """
+                    "SELECT p.*, c.symbol FROM predictions p JOIN coins c ON c.id = p.coin_id WHERE p.id = CAST(:id AS uuid)"
                 ),
                 {"id": prediction_id},
             ).mappings().first()
@@ -370,17 +360,6 @@ class Store:
                 text("SELECT * FROM prediction_modules WHERE prediction_id = CAST(:id AS uuid)"),
                 {"id": prediction_id},
             ).mappings().all()
-            item = dict(pred)
-            for key, value in list(item.items()):
-                if hasattr(value, "hex"):
-                    item[key] = str(value)
-                elif hasattr(value, "isoformat"):
-                    item[key] = value.isoformat()
-            item["modules"] = []
-            for mod in mods:
-                row = dict(mod)
-                for key, value in list(row.items()):
-                    if hasattr(value, "hex"):
-                        row[key] = str(value)
-                item["modules"].append(row)
+            item = _serialize_row(dict(pred))
+            item["modules"] = [_serialize_row(dict(mod)) for mod in mods]
             return item
