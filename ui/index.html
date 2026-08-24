@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>XORA Prediction AI</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --panel: #121933;
+      --line: #243056;
+      --text: #e8edf8;
+      --muted: #8b97b8;
+      --up: #3ee0a2;
+      --down: #ff6b7a;
+      --neutral: #f0c14b;
+      --accent: #6ea8ff;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+      background: radial-gradient(1200px 600px at 10% -10%, #1a2757 0%, var(--bg) 45%);
+      color: var(--text);
+    }
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 20px 28px;
+      border-bottom: 1px solid var(--line);
+    }
+    h1 { margin: 0; font-size: 20px; letter-spacing: 0.04em; }
+    .sub { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .actions { display: flex; gap: 10px; align-items: center; }
+    button {
+      background: var(--accent);
+      color: #081018;
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    button.secondary { background: #22315c; color: var(--text); }
+    button:disabled { opacity: 0.6; cursor: wait; }
+    .status { font-size: 12px; color: var(--muted); }
+    .ok { color: var(--up); }
+    .bad { color: var(--down); }
+    main { padding: 22px 28px 40px; }
+    .grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 22px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px 16px;
+    }
+    .card .k { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .card .v { font-size: 26px; margin-top: 6px; }
+    .tabs { display: flex; gap: 8px; margin-bottom: 12px; }
+    .tabs button { background: #1a2448; color: var(--muted); }
+    .tabs button.active { background: var(--accent); color: #081018; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 600; }
+    tr { cursor: pointer; }
+    tr:hover { background: #182247; }
+    .pill {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .UP { background: #123d32; color: var(--up); }
+    .DOWN { background: #3d1820; color: var(--down); }
+    .NEUTRAL { background: #3d3418; color: var(--neutral); }
+    .empty { color: var(--muted); padding: 24px 8px; }
+    .drawer {
+      position: fixed; right: 0; top: 0; height: 100%; width: min(420px, 92vw);
+      background: #0f1730; border-left: 1px solid var(--line); padding: 20px;
+      overflow: auto; transform: translateX(110%); transition: transform .2s ease;
+    }
+    .drawer.open { transform: translateX(0); }
+    pre { white-space: pre-wrap; font-size: 12px; color: #c9d4f0; }
+    @media (max-width: 900px) { .grid { grid-template-columns: 1fr 1fr; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>XORA Prediction AI</h1>
+      <div class="sub">Analysis → features → decision → validation. No trades.</div>
+    </div>
+    <div class="actions">
+      <div id="health" class="status">checking…</div>
+      <button class="secondary" id="refresh">Refresh</button>
+      <button id="cycle">Run cycle</button>
+    </div>
+  </header>
+  <main>
+    <section class="grid">
+      <div class="card"><div class="k">Predictions</div><div class="v" id="nPred">0</div></div>
+      <div class="card"><div class="k">Validations</div><div class="v" id="nVal">0</div></div>
+      <div class="card"><div class="k">Qualified</div><div class="v" id="nQual">0</div></div>
+      <div class="card"><div class="k">Modules</div><div class="v" id="nMod">0</div></div>
+    </section>
+    <div class="tabs">
+      <button class="active" data-tab="predictions">Predictions</button>
+      <button data-tab="qualified">Qualified coins</button>
+      <button data-tab="validations">Validations</button>
+      <button data-tab="modules">Modules</button>
+    </div>
+    <div class="card" id="tableWrap"></div>
+  </main>
+  <aside class="drawer" id="drawer"></aside>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let tab = "predictions";
+    let cache = { predictions: [], validations: [], qualified: [], modules: [] };
+
+    async function get(path) {
+      const res = await fetch(path);
+      if (!res.ok) throw new Error(path + " " + res.status);
+      return res.json();
+    }
+
+    function pill(dir) {
+      return `<span class="pill ${dir || "NEUTRAL"}">${dir || "—"}</span>`;
+    }
+    function pct(v) {
+      if (v == null || Number.isNaN(Number(v))) return "—";
+      return (Number(v) * 100).toFixed(1) + "%";
+    }
+    function when(v) {
+      if (!v) return "—";
+      return new Date(v).toLocaleString();
+    }
+
+    function renderTable() {
+      const wrap = $("tableWrap");
+      const rows = cache[tab] || [];
+      if (!rows.length) {
+        wrap.innerHTML = `<div class="empty">No ${tab} yet. Run a cycle.</div>`;
+        return;
+      }
+      if (tab === "predictions") {
+        wrap.innerHTML = `<table><thead><tr><th>Symbol</th><th>Dir</th><th>Conf</th><th>Score</th><th>Horizon</th><th>When</th></tr></thead><tbody>` +
+          rows.map(r => `<tr data-id="${r.id}"><td>${r.symbol || ""}</td><td>${pill(r.direction)}</td><td>${pct(r.confidence)}</td><td>${Number(r.score || 0).toFixed(3)}</td><td>${r.horizon || ""}</td><td>${when(r.predicted_at)}</td></tr>`).join("") +
+          `</tbody></table>`;
+      } else if (tab === "qualified") {
+        wrap.innerHTML = `<table><thead><tr><th>Symbol</th><th>Score</th><th>Reason</th><th>When</th></tr></thead><tbody>` +
+          rows.map(r => `<tr><td>${r.symbol || ""}</td><td>${Number(r.score || 0).toFixed(3)}</td><td>${r.reason || ""}</td><td>${when(r.qualified_at)}</td></tr>`).join("") +
+          `</tbody></table>`;
+      } else if (tab === "validations") {
+        wrap.innerHTML = `<table><thead><tr><th>Predicted</th><th>Actual</th><th>Hit</th><th>Conf</th><th>Validated</th></tr></thead><tbody>` +
+          rows.map(r => `<tr><td>${pill(r.predicted_direction)}</td><td>${pill(r.actual_direction)}</td><td>${r.is_correct ? "yes" : "no"}</td><td>${pct(r.confidence)}</td><td>${when(r.validated_at)}</td></tr>`).join("") +
+          `</tbody></table>`;
+      } else {
+        wrap.innerHTML = `<table><thead><tr><th>Module</th><th>On</th><th>Weight</th><th>Priority</th><th>Version</th></tr></thead><tbody>` +
+          rows.map(r => `<tr><td>${r.module_name}</td><td>${r.enabled ? "yes" : "no"}</td><td>${r.weight}</td><td>${r.priority}</td><td>${r.module_version}</td></tr>`).join("") +
+          `</tbody></table>`;
+      }
+    }
+
+    async function load() {
+      try {
+        const health = await get("/api/v1/health");
+        $("health").innerHTML = `<span class="ok">${health.status}</span>`;
+      } catch {
+        $("health").innerHTML = `<span class="bad">api down</span>`;
+      }
+      const [predictions, validations, qualified, modules] = await Promise.all([
+        get("/api/v1/predictions").catch(() => []),
+        get("/api/v1/validations").catch(() => []),
+        get("/api/v1/qualified-coins").catch(() => []),
+        get("/api/v1/modules").catch(() => []),
+      ]);
+      cache = { predictions, validations, qualified, modules };
+      $("nPred").textContent = predictions.length;
+      $("nVal").textContent = validations.length;
+      $("nQual").textContent = qualified.length;
+      $("nMod").textContent = modules.length;
+      renderTable();
+    }
+
+    document.querySelectorAll(".tabs button").forEach(btn => {
+      btn.onclick = () => {
+        document.querySelectorAll(".tabs button").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        tab = btn.dataset.tab;
+        renderTable();
+      };
+    });
+
+    $("refresh").onclick = load;
+    $("cycle").onclick = async () => {
+      $("cycle").disabled = true;
+      $("cycle").textContent = "Running…";
+      try {
+        await fetch("/api/v1/admin/cycles", { method: "POST" });
+        await load();
+      } catch (e) {
+        alert("Cycle failed: " + e.message);
+      } finally {
+        $("cycle").disabled = false;
+        $("cycle").textContent = "Run cycle";
+      }
+    };
+
+    $("tableWrap").addEventListener("click", async (ev) => {
+      const tr = ev.target.closest("tr[data-id]");
+      if (!tr) return;
+      const detail = await get("/api/v1/predictions/" + tr.dataset.id);
+      const drawer = $("drawer");
+      drawer.classList.add("open");
+      drawer.innerHTML = `<h3>${detail.symbol} ${detail.direction}</h3>
+        <p class="sub">${pct(detail.confidence)} · ${detail.strategy_name} · ${detail.engine_version}</p>
+        <h4>Module contributions</h4>
+        <table><thead><tr><th>Module</th><th>Dir</th><th>W</th><th>Contrib</th></tr></thead><tbody>` +
+        (detail.modules || []).map(m => `<tr><td>${m.module_name}</td><td>${m.decision || ""}</td><td>${m.weight}</td><td>${Number(m.contribution || 0).toFixed(3)}</td></tr>`).join("") +
+        `</tbody></table><p><button class="secondary" id="closeDrawer">Close</button></p>`;
+      $("closeDrawer").onclick = () => drawer.classList.remove("open");
+    });
+
+    load();
+    setInterval(load, 15000);
+  </script>
+</body>
+</html>
