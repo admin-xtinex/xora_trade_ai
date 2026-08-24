@@ -7,6 +7,8 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from xora.application.clock import next_full_slot, now_ist, slot_label
+from xora.application.pnl import compute_pnl
 from xora.persistence.db import get_engine
 from xora.persistence.store import _serialize_row
 
@@ -35,12 +37,7 @@ class Analytics:
         return [r for r in rows if (r.get("hit_rate") or 0) >= min_hit_rate]
 
     def trades(self, status: str | None = None, engine: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
-        sql = """
-            SELECT pt.*, c.symbol AS coin_symbol
-            FROM paper_trades pt
-            JOIN coins c ON c.id = pt.coin_id
-            WHERE 1=1
-        """
+        sql = "SELECT pt.*, c.symbol AS coin_symbol FROM paper_trades pt JOIN coins c ON c.id = pt.coin_id WHERE 1=1"
         params: dict[str, Any] = {"limit": limit}
         if status:
             sql += " AND pt.status = :status"
@@ -85,23 +82,23 @@ class Analytics:
             row = conn.execute(text("SELECT * FROM trade_sessions ORDER BY started_at DESC LIMIT 1")).mappings().first()
             return _serialize_row(dict(row)) if row else None
 
-    def start_session(self, warmup_seconds: int, session_seconds: int, universe: list[dict]) -> dict[str, Any]:
-        now = datetime.now(timezone.utc)
+    def start_session_window(self, start, end, universe: list[dict]) -> dict[str, Any]:
         with self.engine.begin() as conn:
-            conn.execute(text("UPDATE trade_sessions SET status = 'closed' WHERE status IN ('warmup','live')"))
+            conn.execute(text("UPDATE trade_sessions SET status = 'closed' WHERE status IN ('warmup','waiting','live')"))
             row = conn.execute(
                 text(
                     """
-                    INSERT INTO trade_sessions (status, started_at, warmup_until, ends_at, universe)
-                    VALUES ('warmup', :started, :warmup, :ends, CAST(:universe AS jsonb))
+                    INSERT INTO trade_sessions (status, started_at, warmup_until, ends_at, universe, notes)
+                    VALUES ('waiting', :started, :live_from, :ends, CAST(:universe AS jsonb), :notes)
                     RETURNING *
                     """
                 ),
                 {
-                    "started": now,
-                    "warmup": now + timedelta(seconds=warmup_seconds),
-                    "ends": now + timedelta(seconds=warmup_seconds + session_seconds),
+                    "started": datetime.now(timezone.utc),
+                    "live_from": start,
+                    "ends": end,
                     "universe": json.dumps(universe),
+                    "notes": slot_label(start, end),
                 },
             ).mappings().one()
             return _serialize_row(dict(row))
@@ -139,8 +136,7 @@ class Analytics:
 
     def open_trades(self) -> list[dict[str, Any]]:
         with self.engine.begin() as conn:
-            rows = conn.execute(text("SELECT * FROM paper_trades WHERE status = 'open'")).mappings().all()
-            return [dict(r) for r in rows]
+            return [dict(r) for r in conn.execute(text("SELECT * FROM paper_trades WHERE status = 'open'")).mappings().all()]
 
     def open_paper(self, payload: dict[str, Any]) -> UUID:
         cols = [
@@ -165,18 +161,19 @@ class Analytics:
             ).mappings().first()
             if not open_row:
                 return
-            entry = float(open_row["entry_price"])
-            qty = float(open_row["qty"])
-            side = open_row["side"]
-            signed = (exit_price - entry) if side == "UP" else (entry - exit_price)
-            pnl = signed * qty
-            notional = float(open_row["notional_usdt"] or 1)
+            proof = compute_pnl(
+                open_row["side"],
+                float(open_row["entry_price"]),
+                float(exit_price),
+                float(open_row["qty"]),
+                float(open_row["margin_usdt"] or 10),
+                int(open_row["leverage"] or 15),
+            )
             analysis = open_row.get("analysis") or {}
             if isinstance(analysis, str):
                 analysis = json.loads(analysis)
             analysis["exit_reason"] = reason
-            analysis["exit_price"] = exit_price
-            analysis["pnl_usdt"] = pnl
+            analysis["pnl_proof"] = proof
             conn.execute(
                 text(
                     """
@@ -189,9 +186,9 @@ class Analytics:
                 ),
                 {
                     "exit_price": exit_price,
-                    "pnl": pnl,
-                    "pnl_pct": pnl / notional,
-                    "full_loss": pnl <= -0.9 * float(open_row["margin_usdt"] or 10),
+                    "pnl": proof["pnl_usdt"],
+                    "pnl_pct": proof["pnl_pct_notional"],
+                    "full_loss": proof["pnl_usdt"] <= -0.9 * proof["margin_usdt"],
                     "reason": reason,
                     "analysis": json.dumps(analysis),
                     "id": trade_id,
@@ -199,6 +196,7 @@ class Analytics:
             )
 
     def live_snapshot(self) -> dict[str, Any]:
+        start, end = next_full_slot()
         with self.engine.begin() as conn:
             open_t = conn.execute(text("SELECT COUNT(*) FROM paper_trades WHERE status='open'")).scalar_one()
             closed = conn.execute(text("SELECT COUNT(*) FROM paper_trades WHERE status='closed'")).scalar_one()
@@ -209,4 +207,11 @@ class Analytics:
             "closed_trades": int(closed or 0),
             "net_pnl": float(pnl or 0),
             "session": _serialize_row(dict(session)) if session else None,
+            "clock": {
+                "timezone": "Asia/Kolkata",
+                "now": now_ist().isoformat(),
+                "next_slot": slot_label(start, end),
+                "next_start": start.isoformat(),
+                "next_end": end.isoformat(),
+            },
         }
