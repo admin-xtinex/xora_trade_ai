@@ -34,17 +34,23 @@ class Analytics:
             return rows
         return [r for r in rows if (r.get("hit_rate") or 0) >= min_hit_rate]
 
-    def trades(self, status: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    def trades(self, status: str | None = None, engine: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         sql = """
             SELECT pt.*, c.symbol AS coin_symbol
             FROM paper_trades pt
             JOIN coins c ON c.id = pt.coin_id
+            WHERE 1=1
         """
+        params: dict[str, Any] = {"limit": limit}
         if status:
-            sql += " WHERE pt.status = :status"
+            sql += " AND pt.status = :status"
+            params["status"] = status
+        if engine:
+            sql += " AND pt.engine_name = :engine"
+            params["engine"] = engine
         sql += " ORDER BY pt.opened_at DESC LIMIT :limit"
         with self.engine.begin() as conn:
-            return [_serialize_row(dict(r)) for r in conn.execute(text(sql), {"status": status, "limit": limit}).mappings().all()]
+            return [_serialize_row(dict(r)) for r in conn.execute(text(sql), params).mappings().all()]
 
     def trade_detail(self, trade_id: str) -> dict[str, Any] | None:
         with self.engine.begin() as conn:
@@ -76,9 +82,7 @@ class Analytics:
 
     def current_session(self) -> dict[str, Any] | None:
         with self.engine.begin() as conn:
-            row = conn.execute(
-                text("SELECT * FROM trade_sessions ORDER BY started_at DESC LIMIT 1")
-            ).mappings().first()
+            row = conn.execute(text("SELECT * FROM trade_sessions ORDER BY started_at DESC LIMIT 1")).mappings().first()
             return _serialize_row(dict(row)) if row else None
 
     def start_session(self, warmup_seconds: int, session_seconds: int, universe: list[dict]) -> dict[str, Any]:
@@ -123,17 +127,14 @@ class Analytics:
                     pick,
                 )
 
-    def open_symbols(self) -> set[str]:
+    def open_pairs(self) -> set[tuple[str, str]]:
         with self.engine.begin() as conn:
-            rows = conn.execute(text("SELECT symbol FROM paper_trades WHERE status = 'open'")).all()
-            return {r[0] for r in rows}
+            rows = conn.execute(text("SELECT symbol, COALESCE(engine_name, '') FROM paper_trades WHERE status = 'open'")).all()
+            return {(r[0], r[1]) for r in rows}
 
     def session_trade_count(self, session_id: UUID) -> int:
         with self.engine.begin() as conn:
-            n = conn.execute(
-                text("SELECT COUNT(*) FROM paper_trades WHERE session_id = :sid"),
-                {"sid": session_id},
-            ).scalar_one()
+            n = conn.execute(text("SELECT COUNT(*) FROM paper_trades WHERE session_id = :sid"), {"sid": session_id}).scalar_one()
             return int(n or 0)
 
     def open_trades(self) -> list[dict[str, Any]]:
@@ -145,7 +146,7 @@ class Analytics:
         cols = [
             "coin_id", "prediction_id", "symbol", "side", "source", "margin_usdt", "leverage",
             "notional_usdt", "entry_price", "qty", "status", "hold_minutes", "tp_price", "sl_price",
-            "entry_reason", "analysis", "session_id", "bucket",
+            "entry_reason", "analysis", "session_id", "bucket", "engine_name",
         ]
         payload = {**payload, "status": payload.get("status", "open")}
         if isinstance(payload.get("analysis"), dict):
@@ -153,10 +154,7 @@ class Analytics:
         fields = ", ".join(cols)
         values = ", ".join(f":{c}" if c != "analysis" else "CAST(:analysis AS jsonb)" for c in cols)
         with self.engine.begin() as conn:
-            row = conn.execute(
-                text(f"INSERT INTO paper_trades ({fields}) VALUES ({values}) RETURNING id"),
-                {c: payload.get(c) for c in cols},
-            ).one()
+            row = conn.execute(text(f"INSERT INTO paper_trades ({fields}) VALUES ({values}) RETURNING id"), {c: payload.get(c) for c in cols}).one()
             return row.id
 
     def close_trade(self, trade_id: UUID, exit_price: float, reason: str) -> None:

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel
 
 from xora.application.analysis import build_analysis, build_trade_analysis
 from xora.application.pipeline import PredictionPlatform
+from xora.engines.registry import EngineRegistry
 from xora.persistence.queries import Analytics
 from xora.persistence.store import Store
 
@@ -18,21 +20,35 @@ def platform() -> PredictionPlatform:
     return _platform
 
 
+class EngineSelect(BaseModel):
+    keys: list[str]
+
+
 @router.get("/health")
 def health() -> dict:
-    return {
-        "status": "ok",
-        "service": "xora-prediction-ai",
-        "timeframe": "15m",
-        "margin": 10,
-        "leverage": 15,
-        "warmup_seconds": 300,
-    }
+    return {"status": "ok", "service": "xora-prediction-ai", "timeframe": "15m", "margin": 10, "leverage": 15}
 
 
 @router.get("/session")
 def session() -> dict:
-    return Analytics().live_snapshot()
+    snap = Analytics().live_snapshot()
+    registry = EngineRegistry()
+    snap["engines"] = registry.all_meta()
+    snap["active_engines"] = registry.active_keys()
+    return snap
+
+
+@router.get("/engines")
+def engines() -> dict:
+    registry = EngineRegistry()
+    return {"engines": registry.all_meta(), "active": registry.active_keys()}
+
+
+@router.post("/engines/active")
+def set_engines(body: EngineSelect) -> dict:
+    registry = EngineRegistry()
+    active = registry.set_active(body.keys)
+    return {"active": active, "engines": registry.all_meta()}
 
 
 @router.get("/coins")
@@ -41,8 +57,8 @@ def coins(min_win: float | None = Query(default=None), min_samples: int = Query(
 
 
 @router.get("/trades")
-def trades(status: str | None = Query(default=None)) -> list[dict]:
-    return Analytics().trades(status=status)
+def trades(status: str | None = Query(default=None), engine: str | None = Query(default=None)) -> list[dict]:
+    return Analytics().trades(status=status, engine=engine)
 
 
 @router.get("/trades/{trade_id}")
@@ -68,8 +84,7 @@ def prediction_detail(prediction_id: str) -> dict:
 
 @router.get("/predictions/{prediction_id}/analysis")
 def prediction_analysis(prediction_id: str) -> dict:
-    store = Store()
-    item = store.prediction_detail(prediction_id)
+    item = Store().prediction_detail(prediction_id)
     if not item:
         raise HTTPException(status_code=404, detail="prediction not found")
     return build_analysis(item)
