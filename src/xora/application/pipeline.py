@@ -39,7 +39,8 @@ class PredictionPlatform:
     def start_trading(self) -> dict[str, Any]:
         current = self.analytics.current_session()
         if current and current.get("status") in {"waiting", "live"}:
-            return {"ok": True, "session": current, "note": "session already armed"}
+            return {"ok": True, "session": current, "note": "session already armed", "slot": current.get("notes")}
+        logger.info("building 50-coin universe from Binance")
         picks = self.universe_builder.build()
         self._picks = picks
         payload = [
@@ -56,18 +57,23 @@ class PredictionPlatform:
         self.analytics.save_universe(payload)
         start, end = next_full_slot()
         session = self.analytics.start_session_window(start, end, payload)
-        return {
-            "ok": True,
-            "session": session,
-            "slot": slot_label(start, end),
-            "now": now_ist().isoformat(),
-        }
+        logger.info("armed slot %s universe=%s", slot_label(start, end), len(picks))
+        return {"ok": True, "session": session, "slot": slot_label(start, end), "now": now_ist().isoformat()}
 
     def run_cycle(self) -> dict[str, Any]:
         session = self.analytics.current_session()
         if not session or session.get("status") not in {"waiting", "live", "warmup"}:
+            armed = self.start_trading()
+            session = armed["session"]
             self.store.heartbeat()
-            return {"phase": "idle", "detail": "Press Start trading to arm the next 15m IST slot."}
+            return {
+                "phase": "waiting",
+                "detail": "auto-armed next IST slot",
+                "slot": armed.get("slot"),
+                "starts_at": session.get("warmup_until"),
+                "ends_at": session.get("ends_at"),
+                "universe": len(self._picks),
+            }
         self._load_picks(session)
         now = datetime.now(timezone.utc)
         live_from = _ts(session.get("warmup_until") or session.get("started_at"))
@@ -77,21 +83,26 @@ class PredictionPlatform:
             self.store.heartbeat()
             return {
                 "phase": "waiting",
-                "slot": slot_label(live_from.astimezone(now_ist().tzinfo) if False else live_from, ends_at),
+                "slot": session.get("notes"),
                 "starts_at": session.get("warmup_until"),
                 "ends_at": session.get("ends_at"),
                 "engines": active,
+                "universe": len(self._picks),
+                "detail": f"waiting until {session.get('warmup_until')}",
             }
         if session.get("status") in {"waiting", "warmup"}:
             self.analytics.mark_session_live(session["id"])
             session["status"] = "live"
+            logger.info("slot live engines=%s coins=%s", active, len(self._picks))
         closed = self._manage_exits()
         if now >= ends_at:
             closed += self._close_all("session_end")
             self.analytics.close_session(session["id"])
             self.store.heartbeat()
-            return {"phase": "session_closed", "closed": closed, "engines": active}
+            return {"phase": "session_closed", "closed": closed, "engines": active, "slot": session.get("notes")}
         opened, errors = self._trade_universe(session)
+        if errors:
+            logger.warning("trade errors %s", errors[:10])
         self.store.heartbeat()
         return {
             "phase": "live",
@@ -100,6 +111,7 @@ class PredictionPlatform:
             "errors": errors,
             "engines": active,
             "universe": len(self._picks),
+            "slot": session.get("notes"),
             "mark": "binance_live_15m",
         }
 
@@ -139,6 +151,7 @@ class PredictionPlatform:
                     self._open_with_engine(pick, session, eng, snapshot, results, coin_id, snapshot_id, feature_set_id)
                     already.add((pick.symbol, eng.key))
                     opened += 1
+                    logger.info("opened %s %s %s", eng.key, pick.symbol, session.get("notes"))
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{pick.symbol}/{eng.key}: {exc}")
         return opened, errors
@@ -210,10 +223,6 @@ class PredictionPlatform:
             f"{c.module_name}={c.decision}"
             for c in sorted(decision.contributions, key=lambda x: abs(x.contribution), reverse=True)[:4]
         ]
-        entry_reason = (
-            f"{eng.name} entered {decision.direction.value} on live 15m Binance mark {entry} "
-            f"during slot. score={decision.score:.3f}. " + "; ".join(reasons)
-        )
         self.analytics.open_paper(
             {
                 "coin_id": coin_id,
@@ -229,15 +238,12 @@ class PredictionPlatform:
                 "hold_minutes": 15,
                 "tp_price": tp,
                 "sl_price": sl,
-                "entry_reason": entry_reason,
+                "entry_reason": f"{eng.name} entered {decision.direction.value} on live 15m mark {entry}. score={decision.score:.3f}. " + "; ".join(reasons),
                 "analysis": {
                     "engine": eng.key,
                     "engine_name": eng.name,
                     "mark": "binance_live_ticker_on_15m_candle",
                     "slot": session.get("notes"),
-                    "qty_formula": "qty = (10 * 15) / entry_price",
-                    "pnl_formula_long": "(exit - entry) * qty",
-                    "pnl_formula_short": "(entry - exit) * qty",
                     "score": decision.score,
                     "modules": reasons,
                 },
@@ -288,7 +294,6 @@ class PredictionPlatform:
         else:
             actual = Direction.NEUTRAL.value
         proof = compute_pnl(predicted, entry, exit_price, float(trade.get("qty") or 0), float(trade.get("margin_usdt") or 10), int(trade.get("leverage") or 15))
-        won = proof["pnl_usdt"] > 0
         self.store.insert_validation(
             {
                 "prediction_id": trade["prediction_id"],
@@ -300,7 +305,7 @@ class PredictionPlatform:
                 "confidence": 0.0,
                 "calibration_bucket": "mid",
                 "market_regime": None,
-                "is_correct": won or reason == "take_profit",
+                "is_correct": proof["pnl_usdt"] > 0 or reason == "take_profit",
                 "reference_price": entry,
                 "realized_price": exit_price,
                 "extras": json.dumps({"reason": reason, "engine": trade.get("engine_name"), "pnl_proof": proof}),
