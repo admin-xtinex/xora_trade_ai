@@ -1,6 +1,8 @@
 services:
   postgres:
     image: postgres:16
+    container_name: xora_postgres
+    hostname: postgres
     environment:
       POSTGRES_USER: xora
       POSTGRES_PASSWORD: xora
@@ -9,28 +11,24 @@ services:
       - "5432:5432"
     volumes:
       - xora_pg_data:/var/lib/postgresql/data
-      - ./schema/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
-      - ./schema/002_paper.sql:/docker-entrypoint-initdb.d/002_paper.sql:ro
-      - ./schema/003_session.sql:/docker-entrypoint-initdb.d/003_session.sql:ro
+      - ./schema:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U xora -d xora"]
       interval: 5s
       timeout: 5s
       retries: 20
-    networks: [xora]
+    restart: unless-stopped
 
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
+    container_name: xora_api
     environment:
       DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
       XORA_TIMEFRAME: 15m
       XORA_HORIZON: 15m
-      XORA_CYCLE_SECONDS: "45"
-      XORA_WARMUP_SECONDS: "300"
-      XORA_SESSION_SECONDS: "900"
-      XORA_UNIVERSE_SIZE: "50"
+      XORA_CYCLE_SECONDS: "10"
       XORA_PAPER_MARGIN: "10"
       XORA_PAPER_LEVERAGE: "15"
       XORA_MIN_TRADES: "3"
@@ -40,20 +38,18 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [xora]
+    restart: unless-stopped
 
   worker:
     build:
       context: .
       dockerfile: Dockerfile.worker
+    container_name: xora_worker
     environment:
       DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
       XORA_TIMEFRAME: 15m
       XORA_HORIZON: 15m
-      XORA_CYCLE_SECONDS: "45"
-      XORA_WARMUP_SECONDS: "300"
-      XORA_SESSION_SECONDS: "900"
-      XORA_UNIVERSE_SIZE: "50"
+      XORA_CYCLE_SECONDS: "10"
       XORA_PAPER_MARGIN: "10"
       XORA_PAPER_LEVERAGE: "15"
       XORA_MIN_TRADES: "3"
@@ -61,10 +57,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-    networks: [xora]
-
-networks:
-  xora:
+    restart: unless-stopped
 
 volumes:
   xora_pg_data:
