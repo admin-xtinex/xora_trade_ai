@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 
-from xora.application.analysis import attach_validation, build_analysis
+from xora.application.analysis import build_analysis, build_trade_analysis
 from xora.application.pipeline import PredictionPlatform
 from xora.persistence.queries import Analytics
 from xora.persistence.store import Store
@@ -20,27 +20,37 @@ def platform() -> PredictionPlatform:
 
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok", "service": "xora-prediction-ai", "timeframe": "5m", "transport": "http+websocket"}
+    return {
+        "status": "ok",
+        "service": "xora-prediction-ai",
+        "timeframe": "15m",
+        "margin": 10,
+        "leverage": 15,
+        "warmup_seconds": 300,
+    }
+
+
+@router.get("/session")
+def session() -> dict:
+    return Analytics().live_snapshot()
 
 
 @router.get("/coins")
-def coins(min_win: float | None = Query(default=None), min_samples: int = Query(default=1)) -> list[dict]:
+def coins(min_win: float | None = Query(default=None), min_samples: int = Query(default=0)) -> list[dict]:
     return Analytics().coin_stats(min_hit_rate=min_win, min_samples=min_samples)
 
 
-@router.get("/coins/{symbol}/setups")
-def coin_setups(symbol: str) -> list[dict]:
-    return Analytics().coin_predictions(symbol)
+@router.get("/trades")
+def trades(status: str | None = Query(default=None)) -> list[dict]:
+    return Analytics().trades(status=status)
 
 
-@router.get("/snapshots")
-def snapshots() -> list[dict]:
-    return Store().list_rows("snapshots")
-
-
-@router.get("/features")
-def features() -> list[dict]:
-    return Store().list_rows("features")
+@router.get("/trades/{trade_id}")
+def trade(trade_id: str) -> dict:
+    item = Analytics().trade_detail(trade_id)
+    if not item:
+        raise HTTPException(status_code=404, detail="trade not found")
+    return build_trade_analysis(item)
 
 
 @router.get("/predictions")
@@ -62,23 +72,12 @@ def prediction_analysis(prediction_id: str) -> dict:
     item = store.prediction_detail(prediction_id)
     if not item:
         raise HTTPException(status_code=404, detail="prediction not found")
-    return build_analysis(item, attach_validation(store, prediction_id))
+    return build_analysis(item)
 
 
 @router.get("/validations")
 def validations() -> list[dict]:
     return Store().list_rows("validations")
-
-
-@router.get("/scores")
-def scores() -> list[dict]:
-    return Store().list_rows("scores")
-
-
-@router.get("/qualified-coins")
-def qualified(min_win: float | None = Query(default=None)) -> list[dict]:
-    rows = Analytics().coin_stats(min_hit_rate=min_win, min_samples=1)
-    return rows
 
 
 @router.get("/modules")

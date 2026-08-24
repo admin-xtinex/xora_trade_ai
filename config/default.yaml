@@ -2,8 +2,8 @@ engine_version: "0.1.0"
 strategy_name: rules.weighted_v1
 model_name: none
 experiment_name: production
-timeframe: 5m
-horizon: 5m
+timeframe: 15m
+horizon: 15m
 qualification:
   min_samples: 2
   min_hit_rate: 0.5
@@ -12,5 +12,5 @@ validation:
   flat_threshold_pct: 0.001
 paper:
   margin_usdt: 10
-  leverage: 20
-  hold_minutes: 5
+  leverage: 15
+  hold_minutes: 15

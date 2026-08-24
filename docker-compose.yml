@@ -11,6 +11,7 @@ services:
       - xora_pg_data:/var/lib/postgresql/data
       - ./schema/001_init.sql:/docker-entrypoint-initdb.d/001_init.sql:ro
       - ./schema/002_paper.sql:/docker-entrypoint-initdb.d/002_paper.sql:ro
+      - ./schema/003_session.sql:/docker-entrypoint-initdb.d/003_session.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U xora -d xora"]
       interval: 5s
@@ -24,12 +25,15 @@ services:
       dockerfile: Dockerfile.api
     environment:
       DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
-      XORA_TIMEFRAME: 5m
-      XORA_HORIZON: 5m
-      XORA_CYCLE_SECONDS: "300"
+      XORA_TIMEFRAME: 15m
+      XORA_HORIZON: 15m
+      XORA_CYCLE_SECONDS: "45"
+      XORA_WARMUP_SECONDS: "300"
+      XORA_SESSION_SECONDS: "900"
       XORA_UNIVERSE_SIZE: "50"
       XORA_PAPER_MARGIN: "10"
-      XORA_PAPER_LEVERAGE: "20"
+      XORA_PAPER_LEVERAGE: "15"
+      XORA_MIN_TRADES: "3"
       LOG_LEVEL: INFO
     ports:
       - "8000:8000"
@@ -44,26 +48,16 @@ services:
       dockerfile: Dockerfile.worker
     environment:
       DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
-      XORA_TIMEFRAME: 5m
-      XORA_HORIZON: 5m
-      XORA_CYCLE_SECONDS: "300"
+      XORA_TIMEFRAME: 15m
+      XORA_HORIZON: 15m
+      XORA_CYCLE_SECONDS: "45"
+      XORA_WARMUP_SECONDS: "300"
+      XORA_SESSION_SECONDS: "900"
       XORA_UNIVERSE_SIZE: "50"
       XORA_PAPER_MARGIN: "10"
-      XORA_PAPER_LEVERAGE: "20"
+      XORA_PAPER_LEVERAGE: "15"
+      XORA_MIN_TRADES: "3"
       LOG_LEVEL: INFO
-    depends_on:
-      postgres:
-        condition: service_healthy
-    networks: [xora]
-
-  pgadmin:
-    image: dpage/pgadmin4
-    profiles: ["dev"]
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@xora.local
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "5050:80"
     depends_on:
       postgres:
         condition: service_healthy
