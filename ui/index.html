@@ -3,164 +3,138 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>XORA 5m Desk</title>
+  <title>XORA Desk</title>
   <style>
-    :root {
-      --bg:#070b16; --panel:#10182f; --line:#26345c; --text:#eaf0ff; --muted:#8ea0c7;
-      --up:#3ee0a2; --down:#ff6b7a; --mid:#f0c14b; --accent:#7db2ff;
-    }
+    :root { --bg:#070b16; --panel:#10182f; --line:#26345c; --text:#eaf0ff; --muted:#8ea0c7; --up:#3ee0a2; --down:#ff6b7a; --mid:#f0c14b; --accent:#7db2ff; }
     *{box-sizing:border-box}
     body{margin:0;font-family:Inter,system-ui,sans-serif;background:radial-gradient(900px 500px at 0 -10%,#18244a,var(--bg));color:var(--text)}
-    header{display:flex;justify-content:space-between;gap:16px;align-items:center;padding:18px 24px;border-bottom:1px solid var(--line)}
+    header{display:flex;justify-content:space-between;gap:12px;align-items:center;padding:16px 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
     h1{margin:0;font-size:18px}
     .sub{color:var(--muted);font-size:12px;margin-top:4px}
-    .actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-    button,select{border:0;border-radius:8px;padding:9px 12px;font-weight:700;cursor:pointer}
-    button{background:var(--accent);color:#071018}
+    button{border:0;border-radius:8px;padding:9px 12px;font-weight:700;cursor:pointer;background:var(--accent);color:#071018}
     button.secondary{background:#1c2748;color:var(--text)}
-    .chip{background:#1c2748;color:var(--muted)}
+    .chip{background:#1c2748;color:var(--muted);border:0;border-radius:8px;padding:8px 10px;font-weight:700;cursor:pointer}
     .chip.on{background:var(--accent);color:#071018}
-    .ok{color:var(--up)} .bad{color:var(--down)} .live{color:var(--up)}
-    main{display:grid;grid-template-columns:340px 1fr;min-height:calc(100vh - 74px)}
-    .list{border-right:1px solid var(--line);padding:16px;overflow:auto}
-    .detail{padding:16px 22px 40px;overflow:auto}
-    .coin{padding:12px;border:1px solid var(--line);border-radius:12px;margin-bottom:8px;cursor:pointer;background:var(--panel)}
-    .coin.active{border-color:var(--accent)}
-    .row{display:flex;justify-content:space-between;gap:8px}
-    .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700}
-    .UP{background:#123d32;color:var(--up)} .DOWN{background:#3d1820;color:var(--down)} .NEUTRAL{background:#3a3016;color:var(--mid)}
+    .ok{color:var(--up)} .bad{color:var(--down)}
+    .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:16px 22px 0}
+    .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+    .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
+    main{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;padding:16px 22px 40px}
     table{width:100%;border-collapse:collapse;font-size:13px}
     th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
-    .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;margin:12px 0}
-    .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
-    .why{line-height:1.45;color:#d5def6}
-    @media(max-width:900px){main{grid-template-columns:1fr}}
+    tr{cursor:pointer}
+    tr:hover{background:#182247}
+    .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700}
+    .UP{background:#123d32;color:var(--up)} .DOWN{background:#3d1820;color:var(--down)} .NEUTRAL{background:#3a3016;color:var(--mid)}
+    .why{line-height:1.5}
+    @media(max-width:980px){main,.grid{grid-template-columns:1fr}}
   </style>
 </head>
 <body>
 <header>
   <div>
-    <h1>XORA 5-minute desk</h1>
-    <div class="sub">Enter and exit inside one 5m candle. Browser → API WebSocket. No Raspberry Pi.</div>
+    <h1>XORA 15m desk</h1>
+    <div class="sub">50 coins · demo like real · margin 10 USDT · 15x · warmup 5m · min 3 trades / session</div>
   </div>
-  <div class="actions">
+  <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
     <span id="ws">connecting…</span>
-    <button class="chip" data-win="">All</button>
-    <button class="chip on" data-win="0.6">60%+</button>
-    <button class="chip" data-win="0.7">70%+</button>
+    <button class="chip on" data-status="">All trades</button>
+    <button class="chip" data-status="open">Open</button>
+    <button class="chip" data-status="closed">Closed</button>
     <button class="secondary" id="refresh">Refresh</button>
-    <button id="cycle">Run 5m cycle</button>
+    <button id="cycle">Run cycle</button>
   </div>
 </header>
+<section class="grid">
+  <div class="card"><div class="k">Phase</div><div id="phase">—</div></div>
+  <div class="card"><div class="k">Open</div><div id="nOpen">0</div></div>
+  <div class="card"><div class="k">Closed</div><div id="nClosed">0</div></div>
+  <div class="card"><div class="k">Net PnL</div><div id="pnl">0</div></div>
+  <div class="card"><div class="k">Session end</div><div id="ends">—</div></div>
+</section>
 <main>
-  <aside class="list">
-    <div class="k">Coins</div>
-    <div id="coins"></div>
-  </aside>
-  <section class="detail" id="detail">
-    <div class="sub">Select a coin, then open full analysis.</div>
-  </section>
+  <div class="card" id="tableWrap"></div>
+  <div class="card" id="detail"><div class="sub">Click a trade for TP, SL, entry, exit and why.</div></div>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
-  let minWin = 0.6;
-  let selected = null;
-  let coins = [];
-
+  let status = "";
+  const pctp = (v) => v == null ? "—" : Number(v).toFixed(6);
+  const pill = (d) => `<span class="pill ${d || "NEUTRAL"}">${d || "—"}</span>`;
+  const when = (v) => v ? new Date(v).toLocaleString() : "—";
   async function get(path) {
     const res = await fetch(path);
     if (!res.ok) throw new Error(path + " " + res.status);
     return res.json();
   }
-  const pct = (v) => v == null ? "—" : (Number(v) * 100).toFixed(1) + "%";
-  const pill = (d) => `<span class="pill ${d || "NEUTRAL"}">${d || "—"}</span>`;
-  const when = (v) => v ? new Date(v).toLocaleString() : "—";
-
-  async function loadCoins() {
-    const q = minWin == null || minWin === "" ? "" : `?min_win=${minWin}&min_samples=2`;
-    coins = await get("/api/v1/coins" + q).catch(() => []);
-    $("coins").innerHTML = coins.length ? coins.map(c => `
-      <div class="coin ${selected===c.symbol?"active":""}" data-symbol="${c.symbol}">
-        <div class="row"><strong>${c.symbol}</strong><span>${pct(c.hit_rate)}</span></div>
-        <div class="sub">${c.sample_size || 0} closed 5m setups</div>
-      </div>`).join("") : `<div class="sub">No coins at this win-rate yet. Run cycles and wait 5 minutes.</div>`;
+  async function load() {
+    const snap = await get("/api/v1/session").catch(() => ({}));
+    $("nOpen").textContent = snap.open_trades ?? 0;
+    $("nClosed").textContent = snap.closed_trades ?? 0;
+    $("pnl").textContent = (snap.net_pnl ?? 0).toFixed(2) + " USDT";
+    $("phase").textContent = snap.session ? snap.session.status : "idle";
+    $("ends").textContent = snap.session ? when(snap.session.ends_at) : "—";
+    const q = status ? ("?status=" + status) : "";
+    const rows = await get("/api/v1/trades" + q).catch(() => []);
+    if (!rows.length) {
+      $("tableWrap").innerHTML = "<div class='sub'>No trades yet. Wait for warmup or run a cycle.</div>";
+      return;
+    }
+    $("tableWrap").innerHTML = `<table><thead><tr>
+      <th>Coin</th><th>Side</th><th>Entry</th><th>TP</th><th>SL</th><th>Exit</th><th>PnL</th><th>Status</th>
+    </tr></thead><tbody>` + rows.map(r => `<tr data-id="${r.id}">
+      <td>${r.symbol}</td><td>${pill(r.side)}</td><td>${pctp(r.entry_price)}</td>
+      <td>${pctp(r.tp_price)}</td><td>${pctp(r.sl_price)}</td><td>${pctp(r.exit_price)}</td>
+      <td>${r.pnl_usdt == null ? "—" : Number(r.pnl_usdt).toFixed(2)}</td>
+      <td>${r.status}${r.bucket ? " · " + r.bucket : ""}</td>
+    </tr>`).join("") + "</tbody></table>";
   }
-
-  async function showCoin(symbol) {
-    selected = symbol;
-    await loadCoins();
-    const setups = await get("/api/v1/coins/" + symbol + "/setups").catch(() => []);
-    const latest = setups[0];
+  async function show(id) {
+    const t = await get("/api/v1/trades/" + id);
     $("detail").innerHTML = `
-      <div class="row"><h2 style="margin:0">${symbol}</h2><button id="full">View full analysis</button></div>
-      <div class="sub">Each setup enters now and must exit in 5 minutes.</div>
-      <div class="grid">
-        <div class="card"><div class="k">Setups</div><div>${setups.length}</div></div>
-        <div class="card"><div class="k">Latest</div><div>${latest ? pill(latest.direction) : "—"}</div></div>
-        <div class="card"><div class="k">Last result</div><div>${latest && latest.is_correct != null ? (latest.is_correct ? "WIN" : "LOSS") : "OPEN"}</div></div>
-        <div class="card"><div class="k">Last PnL</div><div>${latest && latest.pnl_usdt != null ? Number(latest.pnl_usdt).toFixed(2) + " USDT" : "—"}</div></div>
-      </div>
-      <div class="card"><table><thead><tr><th>When</th><th>Side</th><th>Result</th><th>PnL</th><th></th></tr></thead><tbody>
-        ${setups.map(s => `<tr>
-          <td>${when(s.predicted_at)}</td><td>${pill(s.direction)}</td>
-          <td>${s.is_correct == null ? "open until +5m" : (s.is_correct ? "profit path" : "wrong call")}</td>
-          <td>${s.pnl_usdt == null ? "—" : Number(s.pnl_usdt).toFixed(2)}</td>
-          <td><button class="secondary ana" data-id="${s.id}">Analysis</button></td>
-        </tr>`).join("") || "<tr><td colspan=5>No setups</td></tr>"}
-      </tbody></table></div>`;
-    $("full").onclick = () => latest && openAnalysis(latest.id);
-    document.querySelectorAll(".ana").forEach(b => b.onclick = () => openAnalysis(b.dataset.id));
+      <h3 style="margin:0 0 8px">${t.symbol} ${pill(t.side)}</h3>
+      <div class="sub">${t.bucket || ""} · margin ${t.margin_usdt} · ${t.leverage}x</div>
+      <p class="why"><b>Entry price:</b> ${pctp(t.entry_price)}<br>
+      <b>Exit price:</b> ${pctp(t.exit_price)}<br>
+      <b>TP:</b> ${pctp(t.tp_price)} · <b>SL:</b> ${pctp(t.sl_price)}<br>
+      <b>PnL:</b> ${t.pnl_usdt == null ? "open" : Number(t.pnl_usdt).toFixed(4) + " USDT"}</p>
+      <p class="why"><b>Why entered:</b> ${t.why_entered || "—"}</p>
+      <p class="why"><b>Why exited:</b> ${t.why_exited || "still open"}</p>
+      <p class="why"><b>Outcome:</b> ${t.outcome || "—"}</p>
+      <p class="why"><b>What went wrong:</b> ${t.what_went_wrong || "Nothing recorded as an error."}</p>
+      <div class="k">Module votes</div>
+      <table><thead><tr><th>Module</th><th>Vote</th><th>Why</th></tr></thead><tbody>
+        ${(t.supporting_modules||[]).concat(t.opposing_modules||[]).map(m =>
+          `<tr><td>${m.module}</td><td>${pill(m.decision)}</td><td>${m.why}</td></tr>`
+        ).join("") || "<tr><td colspan=3>No module snapshot</td></tr>"}
+      </tbody></table>`;
   }
-
-  async function openAnalysis(id) {
-    const a = await get("/api/v1/predictions/" + id + "/analysis");
-    $("detail").insertAdjacentHTML("afterbegin", `
-      <div class="card" id="analysisCard">
-        <div class="row"><h3 style="margin:0">Full analysis · ${a.symbol} ${pill(a.direction)}</h3>
-        <button class="secondary" id="closeA">Close</button></div>
-        <p class="why"><b>Why enter:</b> ${a.entry_basis}</p>
-        <p class="why"><b>Why exit:</b> ${a.exit_basis}</p>
-        <p class="why"><b>Profit / loss:</b> ${a.outcome || "Still inside the 5-minute hold. Exit not taken yet."}</p>
-        <p class="why"><b>If wrong:</b> ${a.why_wrong || "No error yet — setup still open or it was correct."}</p>
-        <div class="k">AI module decisions</div>
-        <table><thead><tr><th>Module</th><th>Vote</th><th>Why</th></tr></thead><tbody>
-          ${(a.supporting_modules||[]).map(m => `<tr><td>${m.module}</td><td>${pill(m.decision)}</td><td>${m.why}</td></tr>`).join("")}
-        </tbody></table>
-        <div class="sub">engine ${a.engine.engine_version} · ${a.engine.strategy_name} · feat ${a.engine.feature_version}</div>
-      </div>`);
-    $("closeA").onclick = () => $("analysisCard").remove();
-  }
-
   document.querySelectorAll(".chip").forEach(btn => {
-    btn.onclick = async () => {
+    btn.onclick = () => {
       document.querySelectorAll(".chip").forEach(b => b.classList.remove("on"));
       btn.classList.add("on");
-      minWin = btn.dataset.win === "" ? null : Number(btn.dataset.win);
-      selected = null;
-      await loadCoins();
+      status = btn.dataset.status;
+      load();
     };
   });
-  $("coins").addEventListener("click", ev => {
-    const el = ev.target.closest("[data-symbol]");
-    if (el) showCoin(el.dataset.symbol);
+  $("tableWrap").addEventListener("click", ev => {
+    const tr = ev.target.closest("tr[data-id]");
+    if (tr) show(tr.dataset.id);
   });
-  $("refresh").onclick = loadCoins;
+  $("refresh").onclick = load;
   $("cycle").onclick = async () => {
     $("cycle").disabled = true;
-    try { await fetch("/api/v1/admin/cycles", {method:"POST"}); await loadCoins(); if (selected) await showCoin(selected); }
+    try { await fetch("/api/v1/admin/cycles", {method:"POST"}); await load(); }
     finally { $("cycle").disabled = false; }
   };
-
   function connectWs() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(proto + "://" + location.host + "/ws");
-    ws.onopen = () => { $("ws").innerHTML = '<span class="live">live websocket</span>'; };
-    ws.onmessage = () => loadCoins();
+    ws.onopen = () => { $("ws").innerHTML = '<span class="ok">live websocket</span>'; };
+    ws.onmessage = load;
     ws.onclose = () => { $("ws").innerHTML = '<span class="bad">socket retry</span>'; setTimeout(connectWs, 4000); };
-    ws.onerror = () => ws.close();
   }
-  loadCoins();
+  load();
   connectWs();
 </script>
 </body>
