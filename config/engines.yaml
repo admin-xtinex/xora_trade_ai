@@ -1,0 +1,50 @@
+active:
+  - quick_ai
+  - smart_ai
+  - deep_ai
+engines:
+  quick_ai:
+    name: Quick AI
+    description: Fast reaction. Momentum, RSI and volume lead. Tight TP/SL.
+    tp_pct: 0.007
+    sl_pct: 0.005
+    enter_threshold: 0.02
+    weights:
+      trend: 0.6
+      momentum: 1.4
+      rsi: 1.3
+      macd: 0.8
+      volume: 1.2
+      bollinger: 0.7
+      volatility: 0.3
+      atr: 0.2
+  smart_ai:
+    name: Smart AI
+    description: Balanced weighted rules. Medium TP/SL.
+    tp_pct: 0.012
+    sl_pct: 0.008
+    enter_threshold: 0.05
+    weights:
+      trend: 1.0
+      momentum: 1.0
+      rsi: 1.0
+      macd: 1.0
+      volume: 0.8
+      bollinger: 0.7
+      volatility: 0.4
+      atr: 0.3
+  deep_ai:
+    name: Deep AI
+    description: Slower confirmation. Trend and MACD lead. Wider TP/SL.
+    tp_pct: 0.02
+    sl_pct: 0.012
+    enter_threshold: 0.08
+    weights:
+      trend: 1.5
+      momentum: 0.7
+      rsi: 0.6
+      macd: 1.4
+      volume: 0.6
+      bollinger: 0.5
+      volatility: 0.5
+      atr: 0.6
