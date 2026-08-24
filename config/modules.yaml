@@ -1,0 +1,51 @@
+modules:
+  trend:
+    enabled: true
+    weight: 1.0
+    priority: 10
+    configuration:
+      ema_fast: 20
+      ema_slow: 50
+  momentum:
+    enabled: true
+    weight: 1.0
+    priority: 20
+    configuration: {}
+  volatility:
+    enabled: true
+    weight: 0.8
+    priority: 30
+    configuration: {}
+  volume:
+    enabled: true
+    weight: 0.8
+    priority: 40
+    configuration:
+      lookback: 20
+  rsi:
+    enabled: true
+    weight: 1.0
+    priority: 50
+    configuration:
+      period: 14
+  macd:
+    enabled: true
+    weight: 1.0
+    priority: 60
+    configuration:
+      fast: 12
+      slow: 26
+      signal: 9
+  bollinger:
+    enabled: true
+    weight: 0.7
+    priority: 70
+    configuration:
+      period: 20
+      std: 2.0
+  atr:
+    enabled: true
+    weight: 0.5
+    priority: 80
+    configuration:
+      period: 14
