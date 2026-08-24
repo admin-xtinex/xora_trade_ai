@@ -174,7 +174,7 @@ class Store:
                              contribution, decision, raw_features)
                         VALUES
                             (:prediction_id, :module_name, :module_version, :weight, :confidence,
-                             :contribution, :decision, CAST(:raw_features AS jsonb))
+                             :contribution, :decision, CAST(:raw_features AS jsonb)
                         """
                     ),
                     {"prediction_id": row.id, **item},
@@ -228,7 +228,7 @@ class Store:
                 text(
                     """
                     INSERT INTO rolling_scores (
-                        coin_id, window, experiment_name, strategy_name, sample_size,
+                        coin_id, score_window, experiment_name, strategy_name, sample_size,
                         hit_rate, avg_confidence, calibration_error, avg_magnitude_error, score
                     )
                     SELECT p.coin_id, 'all', p.experiment_name, p.strategy_name,
@@ -242,7 +242,7 @@ class Store:
                     JOIN predictions p ON p.id = v.prediction_id
                     WHERE p.experiment_name = :experiment_name AND p.strategy_name = :strategy_name
                     GROUP BY p.coin_id, p.experiment_name, p.strategy_name
-                    ON CONFLICT (coin_id, window, experiment_name, strategy_name)
+                    ON CONFLICT (coin_id, score_window, experiment_name, strategy_name)
                     DO UPDATE SET
                         sample_size = EXCLUDED.sample_size,
                         hit_rate = EXCLUDED.hit_rate,
