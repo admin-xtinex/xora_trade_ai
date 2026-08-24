@@ -13,6 +13,7 @@ from xora.domain.enums import Direction
 from xora.market.providers.binance import BinanceMarketProvider
 from xora.market.selectors import ConfiguredUniverseSelector
 from xora.modules.registry import ModuleRegistry
+from xora.persistence.queries import Analytics
 from xora.persistence.store import Store
 
 logger = logging.getLogger("xora")
@@ -27,8 +28,7 @@ HORIZON_DELTA = {
 
 
 def _hash_payload(symbol: str, timeframe: str, last_time: int) -> str:
-    raw = f"{symbol}:{timeframe}:{last_time}"
-    return hashlib.sha256(raw.encode()).hexdigest()
+    return hashlib.sha256(f"{symbol}:{timeframe}:{last_time}".encode()).hexdigest()
 
 
 def _ref_price(ohlcv: Any) -> float | None:
@@ -43,6 +43,7 @@ class PredictionPlatform:
     def __init__(self) -> None:
         self.settings = get_settings()
         self.store = Store()
+        self.analytics = Analytics()
         self.registry = ModuleRegistry(self.store)
         self.engine = DecisionEngine()
         self.provider = BinanceMarketProvider()
@@ -66,25 +67,23 @@ class PredictionPlatform:
             "validated": validated,
             "qualified": qualified,
             "errors": errors,
+            "timeframe": self.settings.timeframe,
+            "horizon": self.settings.horizon,
         }
 
     def _predict_one(self, symbol: str) -> dict[str, Any]:
         snapshot = self.provider.fetch_ohlcv(symbol, self.settings.timeframe, limit=120)
         coin_id = self.store.upsert_coin(symbol, snapshot.venue)
         snapshot.coin_id = coin_id
-        payload_hash = _hash_payload(symbol, snapshot.timeframe, snapshot.candles[-1].time if snapshot.candles else 0)
-        snapshot_id = self.store.insert_snapshot(coin_id, snapshot, payload_hash)
+        last_time = snapshot.candles[-1].time if snapshot.candles else 0
+        snapshot_id = self.store.insert_snapshot(coin_id, snapshot, _hash_payload(symbol, snapshot.timeframe, last_time))
         results = self.registry.extract(snapshot)
         feature_set_id = self.store.insert_feature_set(
-            coin_id,
-            snapshot_id,
-            self.registry.feature_version(),
-            self.registry.config_version(),
-            results,
+            coin_id, snapshot_id, self.registry.feature_version(), self.registry.config_version(), results
         )
         decision = self.engine.decide(results, self.registry.enabled)
         now = datetime.now(timezone.utc)
-        horizon = self.settings.horizon
+        horizon = self.settings.horizon or "5m"
         payload = {
             "coin_id": coin_id,
             "feature_set_id": feature_set_id,
@@ -102,7 +101,7 @@ class PredictionPlatform:
             "config_version": self.registry.config_version(),
             "experiment_name": "production",
             "predicted_at": now,
-            "horizon_at": now + HORIZON_DELTA.get(horizon, timedelta(minutes=15)),
+            "horizon_at": now + HORIZON_DELTA.get(horizon, timedelta(minutes=5)),
             "metadata": json.dumps(decision.metadata),
         }
         contributions = [
@@ -118,12 +117,34 @@ class PredictionPlatform:
             for c in decision.contributions
         ]
         prediction_id = self.store.insert_prediction(payload, contributions)
+        if decision.direction.value in {"UP", "DOWN"} and snapshot.last_price:
+            margin = self.settings.paper_margin_usdt
+            lev = self.settings.paper_leverage
+            notional = margin * lev
+            qty = notional / snapshot.last_price
+            self.analytics.open_paper(
+                {
+                    "coin_id": coin_id,
+                    "prediction_id": prediction_id,
+                    "symbol": symbol,
+                    "side": decision.direction.value,
+                    "source": "decision_engine",
+                    "margin_usdt": margin,
+                    "leverage": lev,
+                    "notional_usdt": notional,
+                    "entry_price": snapshot.last_price,
+                    "qty": qty,
+                    "hold_minutes": 5,
+                }
+            )
         return {
             "id": str(prediction_id),
             "symbol": symbol,
             "direction": decision.direction.value,
             "confidence": decision.confidence,
             "score": decision.score,
+            "entry_price": snapshot.last_price,
+            "exit_at": payload["horizon_at"].isoformat(),
         }
 
     def validate_due(self) -> int:
@@ -159,9 +180,10 @@ class PredictionPlatform:
                     "is_correct": predicted == actual,
                     "reference_price": reference,
                     "realized_price": realized,
-                    "extras": json.dumps({"change": change}),
+                    "extras": json.dumps({"change": change, "hold": "5m"}),
                 }
             )
+            self.analytics.close_due_paper(row["id"], realized)
             count += 1
         if count:
             self.store.refresh_rolling_scores("production", self.engine.strategy.name)
@@ -178,18 +200,16 @@ class PredictionPlatform:
             hit = row.get("hit_rate") or 0.0
             samples = row.get("sample_size") or 0
             score = row.get("score") or 0.0
-            ok = samples >= min_samples and hit >= min_hit and score >= min_score
-            if not ok:
-                continue
-            qualified.append(
-                {
-                    "coin_id": row["coin_id"],
-                    "experiment_name": row["experiment_name"],
-                    "strategy_name": row["strategy_name"],
-                    "reason": f"hit_rate={hit:.2f} n={samples}",
-                    "score": score,
-                    "gates": json.dumps({"min_samples": min_samples, "min_hit_rate": min_hit}),
-                }
-            )
+            if samples >= min_samples and hit >= min_hit and score >= min_score:
+                qualified.append(
+                    {
+                        "coin_id": row["coin_id"],
+                        "experiment_name": row["experiment_name"],
+                        "strategy_name": row["strategy_name"],
+                        "reason": f"hit_rate={hit:.2f} n={samples}",
+                        "score": score,
+                        "gates": json.dumps({"min_samples": min_samples, "min_hit_rate": min_hit}),
+                    }
+                )
         self.store.replace_qualified(qualified, "production", self.engine.strategy.name)
         return len(qualified)
