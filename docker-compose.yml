@@ -18,15 +18,16 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
-    networks:
-      default:
-        aliases: [postgres, xora_postgres, db]
 
   api:
     build:
       context: .
       dockerfile: Dockerfile.api
     container_name: xora_api
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "xora_postgres:host-gateway"
+      - "postgres:host-gateway"
     environment:
       DATABASE_URL: postgresql+psycopg://xora:xora@xora_postgres:5432/xora
       XORA_TIMEFRAME: 15m
@@ -48,6 +49,10 @@ services:
       context: .
       dockerfile: Dockerfile.worker
     container_name: xora_worker
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "xora_postgres:host-gateway"
+      - "postgres:host-gateway"
     environment:
       DATABASE_URL: postgresql+psycopg://xora:xora@xora_postgres:5432/xora
       XORA_TIMEFRAME: 15m

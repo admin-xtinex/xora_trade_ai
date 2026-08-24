@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
@@ -9,26 +10,54 @@ from sqlalchemy.engine import Engine
 from xora.config.settings import get_settings
 
 _engine: Engine | None = None
+_HOSTS = (
+    None,
+    "xora_postgres",
+    "postgres",
+    "xora_trade_ai-postgres",
+    "host.docker.internal",
+    "172.17.0.1",
+    "127.0.0.1",
+)
+
+
+def _urls() -> list[str]:
+    base = get_settings().database_url
+    parsed = urlparse(base.replace("postgresql+psycopg", "http"))
+    out: list[str] = []
+    seen: set[str] = set()
+    for host in _HOSTS:
+        if host is None:
+            url = base
+        else:
+            replaced = parsed._replace(netloc=f"{parsed.username}:{parsed.password}@{host}:{parsed.port or 5432}")
+            url = urlunparse(replaced).replace("http://", "postgresql+psycopg://", 1)
+        if url not in seen:
+            seen.add(url)
+            out.append(url)
+    return out
 
 
 def get_engine() -> Engine:
     global _engine
     if _engine is None:
-        settings = get_settings()
-        _engine = create_engine(settings.database_url, pool_pre_ping=True, future=True)
+        _engine = create_engine(_urls()[0], pool_pre_ping=True, future=True)
     return _engine
 
 
-def wait_for_db(attempts: int = 30, delay: float = 2.0) -> None:
+def wait_for_db(attempts: int = 8, delay: float = 1.0) -> None:
+    global _engine
     last = None
-    for _ in range(attempts):
-        try:
-            with get_engine().connect() as conn:
-                conn.execute(text("SELECT 1"))
-            return
-        except Exception as exc:  # noqa: BLE001
-            last = exc
-            time.sleep(delay)
+    for url in _urls():
+        _engine = create_engine(url, pool_pre_ping=True, future=True)
+        for _ in range(attempts):
+            try:
+                with _engine.connect() as conn:
+                    conn.execute(text("SELECT 1"))
+                return
+            except Exception as exc:  # noqa: BLE001
+                last = exc
+                time.sleep(delay)
     raise RuntimeError(f"database not reachable: {last}") from last
 
 
