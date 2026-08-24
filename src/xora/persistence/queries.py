@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import UUID
 
@@ -14,20 +15,18 @@ class Analytics:
     def __init__(self) -> None:
         self.engine = get_engine()
 
-    def coin_stats(self, min_hit_rate: float | None = None, min_samples: int = 1) -> list[dict[str, Any]]:
+    def coin_stats(self, min_hit_rate: float | None = None, min_samples: int = 0) -> list[dict[str, Any]]:
         sql = """
             SELECT c.id AS coin_id, c.symbol,
-                   COUNT(v.id)::int AS sample_size,
-                   AVG(CASE WHEN v.is_correct THEN 1.0 ELSE 0.0 END) AS hit_rate,
-                   AVG(v.confidence) AS avg_confidence,
-                   AVG(pt.pnl_usdt) AS avg_pnl
+                   COUNT(pt.id)::int AS sample_size,
+                   AVG(CASE WHEN pt.pnl_usdt > 0 THEN 1.0 WHEN pt.pnl_usdt IS NULL THEN NULL ELSE 0.0 END) AS hit_rate,
+                   AVG(pt.pnl_usdt) AS avg_pnl,
+                   SUM(CASE WHEN pt.status = 'open' THEN 1 ELSE 0 END)::int AS open_trades
             FROM coins c
-            LEFT JOIN predictions p ON p.coin_id = c.id
-            LEFT JOIN validations v ON v.prediction_id = p.id
-            LEFT JOIN paper_trades pt ON pt.prediction_id = p.id AND pt.status = 'closed'
+            LEFT JOIN paper_trades pt ON pt.coin_id = c.id
             GROUP BY c.id, c.symbol
-            HAVING COUNT(v.id) >= :min_samples
-            ORDER BY hit_rate DESC NULLS LAST, sample_size DESC
+            HAVING COUNT(pt.id) >= :min_samples
+            ORDER BY hit_rate DESC NULLS LAST, c.symbol
         """
         with self.engine.begin() as conn:
             rows = [_serialize_row(dict(r)) for r in conn.execute(text(sql), {"min_samples": min_samples}).mappings().all()]
@@ -35,46 +34,136 @@ class Analytics:
             return rows
         return [r for r in rows if (r.get("hit_rate") or 0) >= min_hit_rate]
 
-    def coin_predictions(self, symbol: str) -> list[dict[str, Any]]:
+    def trades(self, status: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
         sql = """
-            SELECT p.*, c.symbol, v.actual_direction, v.is_correct, v.actual_magnitude,
-                   v.reference_price, v.realized_price, v.validated_at,
-                   pt.status AS trade_status, pt.entry_price, pt.exit_price, pt.pnl_usdt, pt.pnl_pct,
-                   pt.side, pt.opened_at, pt.closed_at
-            FROM predictions p
-            JOIN coins c ON c.id = p.coin_id
-            LEFT JOIN validations v ON v.prediction_id = p.id
-            LEFT JOIN paper_trades pt ON pt.prediction_id = p.id
-            WHERE c.symbol = :symbol
-            ORDER BY p.predicted_at DESC
-            LIMIT 50
+            SELECT pt.*, c.symbol AS coin_symbol
+            FROM paper_trades pt
+            JOIN coins c ON c.id = pt.coin_id
         """
+        if status:
+            sql += " WHERE pt.status = :status"
+        sql += " ORDER BY pt.opened_at DESC LIMIT :limit"
         with self.engine.begin() as conn:
-            return [_serialize_row(dict(r)) for r in conn.execute(text(sql), {"symbol": symbol.upper()}).mappings().all()]
+            return [_serialize_row(dict(r)) for r in conn.execute(text(sql), {"status": status, "limit": limit}).mappings().all()]
 
-    def open_paper(self, payload: dict[str, Any]) -> UUID:
+    def trade_detail(self, trade_id: str) -> dict[str, Any] | None:
         with self.engine.begin() as conn:
             row = conn.execute(
                 text(
                     """
-                    INSERT INTO paper_trades (
-                        coin_id, prediction_id, symbol, side, source, margin_usdt, leverage,
-                        notional_usdt, entry_price, qty, status, hold_minutes
-                    ) VALUES (
-                        :coin_id, :prediction_id, :symbol, :side, :source, :margin_usdt, :leverage,
-                        :notional_usdt, :entry_price, :qty, 'open', :hold_minutes
-                    ) RETURNING id
+                    SELECT pt.*, c.symbol AS coin_symbol, p.confidence, p.score, p.market_regime,
+                           p.engine_version, p.strategy_name, p.feature_version, p.config_version
+                    FROM paper_trades pt
+                    JOIN coins c ON c.id = pt.coin_id
+                    LEFT JOIN predictions p ON p.id = pt.prediction_id
+                    WHERE pt.id = CAST(:id AS uuid)
                     """
                 ),
-                payload,
+                {"id": trade_id},
+            ).mappings().first()
+            if not row:
+                return None
+            item = _serialize_row(dict(row))
+            if item.get("prediction_id"):
+                mods = conn.execute(
+                    text("SELECT * FROM prediction_modules WHERE prediction_id = CAST(:id AS uuid)"),
+                    {"id": item["prediction_id"]},
+                ).mappings().all()
+                item["modules"] = [_serialize_row(dict(m)) for m in mods]
+            else:
+                item["modules"] = []
+            return item
+
+    def current_session(self) -> dict[str, Any] | None:
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                text("SELECT * FROM trade_sessions ORDER BY started_at DESC LIMIT 1")
+            ).mappings().first()
+            return _serialize_row(dict(row)) if row else None
+
+    def start_session(self, warmup_seconds: int, session_seconds: int, universe: list[dict]) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        with self.engine.begin() as conn:
+            conn.execute(text("UPDATE trade_sessions SET status = 'closed' WHERE status IN ('warmup','live')"))
+            row = conn.execute(
+                text(
+                    """
+                    INSERT INTO trade_sessions (status, started_at, warmup_until, ends_at, universe)
+                    VALUES ('warmup', :started, :warmup, :ends, CAST(:universe AS jsonb))
+                    RETURNING *
+                    """
+                ),
+                {
+                    "started": now,
+                    "warmup": now + timedelta(seconds=warmup_seconds),
+                    "ends": now + timedelta(seconds=warmup_seconds + session_seconds),
+                    "universe": json.dumps(universe),
+                },
+            ).mappings().one()
+            return _serialize_row(dict(row))
+
+    def mark_session_live(self, session_id: UUID) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(text("UPDATE trade_sessions SET status = 'live' WHERE id = :id"), {"id": session_id})
+
+    def close_session(self, session_id: UUID) -> None:
+        with self.engine.begin() as conn:
+            conn.execute(text("UPDATE trade_sessions SET status = 'closed' WHERE id = :id"), {"id": session_id})
+
+    def save_universe(self, picks: list[dict[str, Any]]) -> None:
+        with self.engine.begin() as conn:
+            for pick in picks:
+                conn.execute(
+                    text(
+                        """
+                        INSERT INTO universe_picks (symbol, source, change_pct, quote_volume, last_price)
+                        VALUES (:symbol, :source, :change_pct, :quote_volume, :last_price)
+                        """
+                    ),
+                    pick,
+                )
+
+    def open_symbols(self) -> set[str]:
+        with self.engine.begin() as conn:
+            rows = conn.execute(text("SELECT symbol FROM paper_trades WHERE status = 'open'")).all()
+            return {r[0] for r in rows}
+
+    def session_trade_count(self, session_id: UUID) -> int:
+        with self.engine.begin() as conn:
+            n = conn.execute(
+                text("SELECT COUNT(*) FROM paper_trades WHERE session_id = :sid"),
+                {"sid": session_id},
+            ).scalar_one()
+            return int(n or 0)
+
+    def open_trades(self) -> list[dict[str, Any]]:
+        with self.engine.begin() as conn:
+            rows = conn.execute(text("SELECT * FROM paper_trades WHERE status = 'open'")).mappings().all()
+            return [dict(r) for r in rows]
+
+    def open_paper(self, payload: dict[str, Any]) -> UUID:
+        cols = [
+            "coin_id", "prediction_id", "symbol", "side", "source", "margin_usdt", "leverage",
+            "notional_usdt", "entry_price", "qty", "status", "hold_minutes", "tp_price", "sl_price",
+            "entry_reason", "analysis", "session_id", "bucket",
+        ]
+        payload = {**payload, "status": payload.get("status", "open")}
+        if isinstance(payload.get("analysis"), dict):
+            payload["analysis"] = json.dumps(payload["analysis"])
+        fields = ", ".join(cols)
+        values = ", ".join(f":{c}" if c != "analysis" else "CAST(:analysis AS jsonb)" for c in cols)
+        with self.engine.begin() as conn:
+            row = conn.execute(
+                text(f"INSERT INTO paper_trades ({fields}) VALUES ({values}) RETURNING id"),
+                {c: payload.get(c) for c in cols},
             ).one()
             return row.id
 
-    def close_due_paper(self, prediction_id: UUID, exit_price: float) -> None:
+    def close_trade(self, trade_id: UUID, exit_price: float, reason: str) -> None:
         with self.engine.begin() as conn:
             open_row = conn.execute(
-                text("SELECT * FROM paper_trades WHERE prediction_id = :pid AND status = 'open'"),
-                {"pid": prediction_id},
+                text("SELECT * FROM paper_trades WHERE id = :id AND status = 'open'"),
+                {"id": trade_id},
             ).mappings().first()
             if not open_row:
                 return
@@ -83,35 +172,43 @@ class Analytics:
             side = open_row["side"]
             signed = (exit_price - entry) if side == "UP" else (entry - exit_price)
             pnl = signed * qty
-            notional = float(open_row["notional_usdt"]) or 1.0
-            pnl_pct = pnl / notional
+            notional = float(open_row["notional_usdt"] or 1)
+            analysis = open_row.get("analysis") or {}
+            if isinstance(analysis, str):
+                analysis = json.loads(analysis)
+            analysis["exit_reason"] = reason
+            analysis["exit_price"] = exit_price
+            analysis["pnl_usdt"] = pnl
             conn.execute(
                 text(
                     """
                     UPDATE paper_trades
                     SET exit_price = :exit_price, pnl_usdt = :pnl, pnl_pct = :pnl_pct,
-                        is_full_loss = :full_loss, status = 'closed', closed_at = now()
+                        is_full_loss = :full_loss, status = 'closed', closed_at = now(),
+                        exit_reason = :reason, analysis = CAST(:analysis AS jsonb)
                     WHERE id = :id
                     """
                 ),
                 {
                     "exit_price": exit_price,
                     "pnl": pnl,
-                    "pnl_pct": pnl_pct,
-                    "full_loss": pnl_pct <= -0.9,
-                    "id": open_row["id"],
+                    "pnl_pct": pnl / notional,
+                    "full_loss": pnl <= -0.9 * float(open_row["margin_usdt"] or 10),
+                    "reason": reason,
+                    "analysis": json.dumps(analysis),
+                    "id": trade_id,
                 },
             )
 
     def live_snapshot(self) -> dict[str, Any]:
         with self.engine.begin() as conn:
-            pred = conn.execute(text("SELECT COUNT(*) AS n FROM predictions")).scalar_one()
-            val = conn.execute(text("SELECT COUNT(*) AS n FROM validations")).scalar_one()
-            open_t = conn.execute(text("SELECT COUNT(*) AS n FROM paper_trades WHERE status='open'")).scalar_one()
-            hb = conn.execute(text("SELECT value FROM system_configuration WHERE key='worker_heartbeat'")).scalar()
+            open_t = conn.execute(text("SELECT COUNT(*) FROM paper_trades WHERE status='open'")).scalar_one()
+            closed = conn.execute(text("SELECT COUNT(*) FROM paper_trades WHERE status='closed'")).scalar_one()
+            pnl = conn.execute(text("SELECT COALESCE(SUM(pnl_usdt),0) FROM paper_trades WHERE status='closed'")).scalar_one()
+            session = conn.execute(text("SELECT * FROM trade_sessions ORDER BY started_at DESC LIMIT 1")).mappings().first()
         return {
-            "predictions": int(pred or 0),
-            "validations": int(val or 0),
-            "open_setups": int(open_t or 0),
-            "heartbeat": hb if isinstance(hb, dict) else json.loads(hb) if hb else None,
+            "open_trades": int(open_t or 0),
+            "closed_trades": int(closed or 0),
+            "net_pnl": float(pnl or 0),
+            "session": _serialize_row(dict(session)) if session else None,
         }
