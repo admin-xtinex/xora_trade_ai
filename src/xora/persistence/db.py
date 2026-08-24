@@ -24,5 +24,7 @@ def apply_schema() -> None:
     if not sql_path.exists():
         sql_path = Path("/app/schema/001_init.sql")
     raw = sql_path.read_text()
+    statements = [part.strip() for part in raw.split(";") if part.strip()]
     with get_engine().begin() as conn:
-        conn.execute(text(raw))
+        for statement in statements:
+            conn.execute(text(statement))
