@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -17,12 +18,22 @@ UI_DIR = Path(__file__).resolve().parents[2] / "ui"
 if not UI_DIR.exists():
     UI_DIR = Path("/app/ui")
 
+log = logging.getLogger("xora.api")
+
+
+def _schema_later() -> None:
+    try:
+        apply_schema()
+        log.info("schema ready")
+    except Exception:
+        log.exception("schema apply failed; UI still up")
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     settings = get_settings()
     logging.basicConfig(level=settings.log_level)
-    apply_schema()
+    threading.Thread(target=_schema_later, daemon=True).start()
     yield
 
 

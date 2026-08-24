@@ -18,6 +18,9 @@ services:
       timeout: 5s
       retries: 20
     restart: unless-stopped
+    networks:
+      default:
+        aliases: [postgres, xora_postgres, db]
 
   api:
     build:
@@ -25,7 +28,7 @@ services:
       dockerfile: Dockerfile.api
     container_name: xora_api
     environment:
-      DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
+      DATABASE_URL: postgresql+psycopg://xora:xora@xora_postgres:5432/xora
       XORA_TIMEFRAME: 15m
       XORA_HORIZON: 15m
       XORA_CYCLE_SECONDS: "10"
@@ -46,7 +49,7 @@ services:
       dockerfile: Dockerfile.worker
     container_name: xora_worker
     environment:
-      DATABASE_URL: postgresql+psycopg://xora:xora@postgres:5432/xora
+      DATABASE_URL: postgresql+psycopg://xora:xora@xora_postgres:5432/xora
       XORA_TIMEFRAME: 15m
       XORA_HORIZON: 15m
       XORA_CYCLE_SECONDS: "10"
