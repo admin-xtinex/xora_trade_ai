@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from xora.persistence.queries import Analytics
 from xora.persistence.store import Store
 
 
@@ -15,79 +16,6 @@ def _features(raw: Any) -> dict:
         except json.JSONDecodeError:
             return {}
     return {}
-
-
-def build_analysis(detail: dict[str, Any], validation: dict[str, Any] | None = None) -> dict[str, Any]:
-    modules = detail.get("modules") or []
-    direction = detail.get("direction")
-    supporting = [m for m in modules if m.get("decision") == direction]
-    opposing = [m for m in modules if m.get("decision") and m.get("decision") not in {direction, "NEUTRAL", "NONE"}]
-    reasons = []
-    for m in sorted(supporting, key=lambda x: abs(float(x.get("contribution") or 0)), reverse=True):
-        feats = _features(m.get("raw_features"))
-        reasons.append(
-            {
-                "module": m.get("module_name"),
-                "decision": m.get("decision"),
-                "weight": m.get("weight"),
-                "contribution": m.get("contribution"),
-                "features": feats,
-                "why": _module_why(m.get("module_name"), feats, m.get("decision")),
-            }
-        )
-    entry_basis = (
-        f"5m setup entered {direction} because weighted modules scored {float(detail.get('score') or 0):.3f} "
-        f"with confidence {float(detail.get('confidence') or 0):.0%}. "
-        f"Top votes: " + ", ".join(f"{r['module']} ({r['decision']})" for r in reasons[:4] or [{"module": "none", "decision": "n/a"}])
-    )
-    exit_basis = "Exit is forced at the 5-minute horizon. This platform does not hold beyond one 5m candle."
-    outcome = None
-    mistake = None
-    if validation:
-        actual = validation.get("actual_direction")
-        change = validation.get("actual_magnitude")
-        won = validation.get("is_correct")
-        if won:
-            outcome = (
-                f"Profit path: predicted {direction}, market moved {actual} "
-                f"({float(change or 0):.2%} from entry reference). The 5m exit captured that move."
-            )
-        else:
-            outcome = (
-                f"Loss path: predicted {direction}, market actually {actual} "
-                f"({float(change or 0):.2%}). 5m exit closed against the call."
-            )
-            wrong = ", ".join(m.get("module_name") for m in supporting) or "the composite score"
-            mistake = (
-                f"The call was wrong because {wrong} dominated the score, but price did not follow. "
-                + (f"Opposing modules were {', '.join(m.get('module_name') for m in opposing)}." if opposing else "No strong opposing module voted the other way.")
-            )
-    return {
-        "symbol": detail.get("symbol"),
-        "timeframe": "5m",
-        "hold": "5 minutes only",
-        "direction": direction,
-        "confidence": detail.get("confidence"),
-        "score": detail.get("score"),
-        "regime": detail.get("market_regime"),
-        "predicted_at": detail.get("predicted_at"),
-        "horizon_at": detail.get("horizon_at"),
-        "entry_basis": entry_basis,
-        "exit_basis": exit_basis,
-        "supporting_modules": reasons,
-        "opposing_modules": [
-            {"module": m.get("module_name"), "decision": m.get("decision"), "contribution": m.get("contribution")}
-            for m in opposing
-        ],
-        "outcome": outcome,
-        "why_wrong": mistake,
-        "engine": {
-            "engine_version": detail.get("engine_version"),
-            "strategy_name": detail.get("strategy_name"),
-            "feature_version": detail.get("feature_version"),
-            "config_version": detail.get("config_version"),
-        },
-    }
 
 
 def _module_why(name: str | None, feats: dict, decision: str | None) -> str:
@@ -105,10 +33,88 @@ def _module_why(name: str | None, feats: dict, decision: str | None) -> str:
     if name == "momentum":
         return f"10-bar ROC {feats.get('roc_10')} pointed {decision}."
     if name == "atr":
-        return f"ATR% {feats.get('atr_pct')} used only as size/volatility context."
+        return f"ATR% {feats.get('atr_pct')} was volatility context."
     if name == "volatility":
-        return f"Realized vol {feats.get('realized_vol_20')} was context, not a trigger."
+        return f"Realized vol {feats.get('realized_vol_20')} was context."
     return f"{name} voted {decision}."
+
+
+def build_trade_analysis(trade: dict[str, Any]) -> dict[str, Any]:
+    modules = trade.get("modules") or []
+    supporting = []
+    opposing = []
+    side = trade.get("side")
+    for m in modules:
+        feats = _features(m.get("raw_features"))
+        row = {
+            "module": m.get("module_name"),
+            "decision": m.get("decision"),
+            "contribution": m.get("contribution"),
+            "why": _module_why(m.get("module_name"), feats, m.get("decision")),
+            "features": feats,
+        }
+        if m.get("decision") == side:
+            supporting.append(row)
+        elif m.get("decision") in {"UP", "DOWN"}:
+            opposing.append(row)
+    pnl = trade.get("pnl_usdt")
+    reason = trade.get("exit_reason")
+    if reason == "take_profit":
+        outcome = "Take profit hit. Price reached the planned TP."
+        wrong = None
+    elif reason == "stop_loss":
+        outcome = "Stop loss hit. Price moved against the entry."
+        wrong = (
+            f"Entered {side} at {trade.get('entry_price')} but price went to {trade.get('exit_price')}. "
+            + ("Supporting modules: " + ", ".join(r["module"] for r in supporting) if supporting else "Weak module agreement.")
+        )
+    elif reason == "session_end":
+        outcome = "15-minute session ended so the demo trade was closed at live Binance price."
+        wrong = None if (pnl or 0) >= 0 else "Session clock expired while the move had not reached TP."
+    elif trade.get("status") == "open":
+        outcome = "Trade is still open. TP/SL have not printed yet."
+        wrong = None
+    else:
+        outcome = f"Closed ({reason})."
+        wrong = None if (pnl or 0) >= 0 else "Exit was against the predicted side."
+    return {
+        "id": trade.get("id"),
+        "symbol": trade.get("coin_symbol") or trade.get("symbol"),
+        "side": side,
+        "status": trade.get("status"),
+        "bucket": trade.get("bucket") or trade.get("source"),
+        "margin_usdt": trade.get("margin_usdt"),
+        "leverage": trade.get("leverage"),
+        "entry_price": trade.get("entry_price"),
+        "exit_price": trade.get("exit_price"),
+        "tp_price": trade.get("tp_price"),
+        "sl_price": trade.get("sl_price"),
+        "pnl_usdt": pnl,
+        "pnl_pct": trade.get("pnl_pct"),
+        "opened_at": trade.get("opened_at"),
+        "closed_at": trade.get("closed_at"),
+        "why_entered": trade.get("entry_reason"),
+        "why_exited": reason,
+        "outcome": outcome,
+        "what_went_wrong": wrong,
+        "analysis_data": trade.get("analysis"),
+        "supporting_modules": supporting,
+        "opposing_modules": opposing,
+        "confidence": trade.get("confidence"),
+        "score": trade.get("score"),
+        "engine_version": trade.get("engine_version"),
+        "strategy_name": trade.get("strategy_name"),
+    }
+
+
+def build_analysis(detail: dict[str, Any], validation: dict[str, Any] | None = None) -> dict[str, Any]:
+    analytics = Analytics()
+    trades = analytics.trades()
+    for trade in trades:
+        if str(trade.get("prediction_id")) == str(detail.get("id")):
+            full = analytics.trade_detail(trade["id"]) or trade
+            return build_trade_analysis(full)
+    return {"symbol": detail.get("symbol"), "why_entered": "No paper trade attached yet."}
 
 
 def attach_validation(store: Store, prediction_id: str) -> dict | None:

@@ -11,32 +11,16 @@ from xora.config.settings import get_settings
 from xora.decision.engine import DecisionEngine
 from xora.domain.enums import Direction
 from xora.market.providers.binance import BinanceMarketProvider
-from xora.market.selectors import ConfiguredUniverseSelector
+from xora.market.universe import BinanceUniverseBuilder, UniversePick
 from xora.modules.registry import ModuleRegistry
 from xora.persistence.queries import Analytics
 from xora.persistence.store import Store
 
 logger = logging.getLogger("xora")
 
-HORIZON_DELTA = {
-    "1m": timedelta(minutes=1),
-    "5m": timedelta(minutes=5),
-    "15m": timedelta(minutes=15),
-    "1h": timedelta(hours=1),
-    "4h": timedelta(hours=4),
-}
-
 
 def _hash_payload(symbol: str, timeframe: str, last_time: int) -> str:
     return hashlib.sha256(f"{symbol}:{timeframe}:{last_time}".encode()).hexdigest()
-
-
-def _ref_price(ohlcv: Any) -> float | None:
-    if isinstance(ohlcv, str):
-        ohlcv = json.loads(ohlcv)
-    if not ohlcv:
-        return None
-    return float(ohlcv[-1]["close"])
 
 
 class PredictionPlatform:
@@ -47,49 +31,124 @@ class PredictionPlatform:
         self.registry = ModuleRegistry(self.store)
         self.engine = DecisionEngine()
         self.provider = BinanceMarketProvider()
-        self.selector = ConfiguredUniverseSelector()
+        self.universe_builder = BinanceUniverseBuilder()
+        self._picks: list[UniversePick] = []
 
     def run_cycle(self) -> dict[str, Any]:
-        symbols = self.selector.select()
-        created: list[dict[str, Any]] = []
-        errors: list[str] = []
-        for symbol in symbols:
-            try:
-                created.append(self._predict_one(symbol))
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("cycle failed for %s", symbol)
-                errors.append(f"{symbol}: {exc}")
-        validated = self.validate_due()
-        qualified = self.qualify()
+        session = self._ensure_session()
+        now = datetime.now(timezone.utc)
+        warmup_until = datetime.fromisoformat(session["warmup_until"].replace("Z", "+00:00")) if isinstance(session["warmup_until"], str) else session["warmup_until"]
+        ends_at = datetime.fromisoformat(session["ends_at"].replace("Z", "+00:00")) if isinstance(session["ends_at"], str) else session["ends_at"]
+        if now < warmup_until:
+            self.store.heartbeat()
+            return {"phase": "warmup", "session": session, "predictions": [], "opened": 0, "closed": 0, "errors": []}
+        if session.get("status") == "warmup":
+            self.analytics.mark_session_live(session["id"])
+            session["status"] = "live"
+        closed = self._manage_exits()
+        if now >= ends_at:
+            closed += self._close_all("session_end")
+            self.analytics.close_session(session["id"])
+            self.store.heartbeat()
+            return {"phase": "session_closed", "closed": closed, "session": session}
+        opened, errors = self._trade_universe(session)
+        if self.analytics.session_trade_count(session["id"]) < self.settings.min_trades_per_session:
+            extra, extra_errors = self._force_minimum(session)
+            opened += extra
+            errors.extend(extra_errors)
         self.store.heartbeat()
         return {
-            "predictions": created,
-            "validated": validated,
-            "qualified": qualified,
+            "phase": "live",
+            "session": session,
+            "opened": opened,
+            "closed": closed,
             "errors": errors,
-            "timeframe": self.settings.timeframe,
-            "horizon": self.settings.horizon,
+            "universe": len(self._picks),
         }
 
-    def _predict_one(self, symbol: str) -> dict[str, Any]:
-        snapshot = self.provider.fetch_ohlcv(symbol, self.settings.timeframe, limit=120)
-        coin_id = self.store.upsert_coin(symbol, snapshot.venue)
+    def _ensure_session(self) -> dict[str, Any]:
+        current = self.analytics.current_session()
+        now = datetime.now(timezone.utc)
+        if current and current.get("status") in {"warmup", "live"}:
+            ends_at = current["ends_at"]
+            if isinstance(ends_at, str):
+                ends_at = datetime.fromisoformat(ends_at.replace("Z", "+00:00"))
+            if now < ends_at:
+                raw = current.get("universe") or []
+                if isinstance(raw, str):
+                    raw = json.loads(raw)
+                self._picks = [
+                    UniversePick(
+                        symbol=p["symbol"],
+                        bucket=p.get("bucket") or p.get("source") or "ai",
+                        change_pct=float(p.get("change_pct") or 0),
+                        quote_volume=float(p.get("quote_volume") or 0),
+                        last_price=float(p.get("last_price") or 0),
+                    )
+                    for p in raw
+                ]
+                return current
+        picks = self.universe_builder.build()
+        self._picks = picks
+        payload = [
+            {
+                "symbol": p.symbol,
+                "bucket": p.bucket,
+                "source": p.bucket,
+                "change_pct": p.change_pct,
+                "quote_volume": p.quote_volume,
+                "last_price": p.last_price,
+            }
+            for p in picks
+        ]
+        self.analytics.save_universe(payload)
+        return self.analytics.start_session(
+            self.settings.warmup_seconds,
+            self.settings.session_seconds,
+            payload,
+        )
+
+    def _trade_universe(self, session: dict[str, Any]) -> tuple[int, list[str]]:
+        opened = 0
+        errors: list[str] = []
+        already = self.analytics.open_symbols()
+        for pick in self._picks:
+            if pick.symbol in already:
+                continue
+            try:
+                self._open_one(pick, session, force=True)
+                opened += 1
+                already.add(pick.symbol)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("trade failed %s", pick.symbol)
+                errors.append(f"{pick.symbol}: {exc}")
+        return opened, errors
+
+    def _force_minimum(self, session: dict[str, Any]) -> tuple[int, list[str]]:
+        return self._trade_universe(session)
+
+    def _open_one(self, pick: UniversePick, session: dict[str, Any], force: bool) -> dict[str, Any]:
+        snapshot = self.provider.fetch_ohlcv(pick.symbol, self.settings.timeframe, limit=120)
+        coin_id = self.store.upsert_coin(pick.symbol, snapshot.venue)
         snapshot.coin_id = coin_id
         last_time = snapshot.candles[-1].time if snapshot.candles else 0
-        snapshot_id = self.store.insert_snapshot(coin_id, snapshot, _hash_payload(symbol, snapshot.timeframe, last_time))
+        snapshot_id = self.store.insert_snapshot(
+            coin_id, snapshot, _hash_payload(pick.symbol, snapshot.timeframe, last_time)
+        )
         results = self.registry.extract(snapshot)
         feature_set_id = self.store.insert_feature_set(
             coin_id, snapshot_id, self.registry.feature_version(), self.registry.config_version(), results
         )
-        decision = self.engine.decide(results, self.registry.enabled)
+        decision = self.engine.decide(
+            results, self.registry.enabled, force=force, fallback_change=pick.change_pct
+        )
         now = datetime.now(timezone.utc)
-        horizon = self.settings.horizon or "5m"
         payload = {
             "coin_id": coin_id,
             "feature_set_id": feature_set_id,
             "snapshot_id": snapshot_id,
             "direction": decision.direction.value,
-            "horizon": horizon,
+            "horizon": "15m",
             "magnitude": decision.magnitude,
             "confidence": decision.confidence,
             "score": decision.score,
@@ -101,7 +160,7 @@ class PredictionPlatform:
             "config_version": self.registry.config_version(),
             "experiment_name": "production",
             "predicted_at": now,
-            "horizon_at": now + HORIZON_DELTA.get(horizon, timedelta(minutes=5)),
+            "horizon_at": now + timedelta(minutes=15),
             "metadata": json.dumps(decision.metadata),
         }
         contributions = [
@@ -117,99 +176,127 @@ class PredictionPlatform:
             for c in decision.contributions
         ]
         prediction_id = self.store.insert_prediction(payload, contributions)
-        if decision.direction.value in {"UP", "DOWN"} and snapshot.last_price:
-            margin = self.settings.paper_margin_usdt
-            lev = self.settings.paper_leverage
-            notional = margin * lev
-            qty = notional / snapshot.last_price
-            self.analytics.open_paper(
-                {
-                    "coin_id": coin_id,
-                    "prediction_id": prediction_id,
-                    "symbol": symbol,
-                    "side": decision.direction.value,
-                    "source": "decision_engine",
-                    "margin_usdt": margin,
-                    "leverage": lev,
-                    "notional_usdt": notional,
-                    "entry_price": snapshot.last_price,
-                    "qty": qty,
-                    "hold_minutes": 5,
-                }
-            )
-        return {
-            "id": str(prediction_id),
-            "symbol": symbol,
-            "direction": decision.direction.value,
-            "confidence": decision.confidence,
-            "score": decision.score,
-            "entry_price": snapshot.last_price,
-            "exit_at": payload["horizon_at"].isoformat(),
-        }
+        entry = snapshot.last_price or pick.last_price
+        tp_pct = self.settings.tp_pct
+        sl_pct = self.settings.sl_pct
+        if decision.direction.value == "DOWN":
+            tp = entry * (1 - tp_pct)
+            sl = entry * (1 + sl_pct)
+        else:
+            tp = entry * (1 + tp_pct)
+            sl = entry * (1 - sl_pct)
+        margin = self.settings.paper_margin_usdt
+        lev = self.settings.paper_leverage
+        notional = margin * lev
+        reasons = [
+            f"{c.module_name}={c.decision}"
+            for c in sorted(decision.contributions, key=lambda x: abs(x.contribution), reverse=True)[:4]
+        ]
+        entry_reason = (
+            f"{decision.direction.value} on {pick.symbol} from {pick.bucket} book. "
+            f"score={decision.score:.3f} conf={decision.confidence:.0%}. "
+            + ("; ".join(reasons) if reasons else "forced from available 24h/feature data")
+        )
+        if decision.metadata.get("forced"):
+            entry_reason += ". AI was not sure; decision forced from available data."
+        self.analytics.open_paper(
+            {
+                "coin_id": coin_id,
+                "prediction_id": prediction_id,
+                "symbol": pick.symbol,
+                "side": decision.direction.value,
+                "source": pick.bucket,
+                "margin_usdt": margin,
+                "leverage": lev,
+                "notional_usdt": notional,
+                "entry_price": entry,
+                "qty": notional / entry if entry else 0,
+                "hold_minutes": 15,
+                "tp_price": tp,
+                "sl_price": sl,
+                "entry_reason": entry_reason,
+                "analysis": {
+                    "bucket": pick.bucket,
+                    "change_24h": pick.change_pct,
+                    "forced": decision.metadata.get("forced"),
+                    "score": decision.score,
+                    "confidence": decision.confidence,
+                    "tp_pct": tp_pct,
+                    "sl_pct": sl_pct,
+                    "modules": reasons,
+                },
+                "session_id": session["id"],
+                "bucket": pick.bucket,
+            }
+        )
+        return {"symbol": pick.symbol, "side": decision.direction.value, "entry": entry}
 
-    def validate_due(self) -> int:
-        due = self.store.due_predictions()
-        count = 0
-        flat = float(self.settings.default_config().get("validation", {}).get("flat_threshold_pct", 0.001))
-        for row in due:
+    def _manage_exits(self) -> int:
+        closed = 0
+        for trade in self.analytics.open_trades():
             try:
-                realized = self.provider.fetch_last_price(row["symbol"])
+                price = self.provider.fetch_last_price(trade["symbol"])
             except Exception:  # noqa: BLE001
                 continue
-            reference = _ref_price(row["ohlcv"]) or realized
-            change = (realized - reference) / reference if reference else 0.0
-            if change > flat:
-                actual = Direction.UP.value
-            elif change < -flat:
-                actual = Direction.DOWN.value
-            else:
-                actual = Direction.NEUTRAL.value
-            predicted = row["direction"]
-            bucket = "high" if row["confidence"] >= 0.7 else "mid" if row["confidence"] >= 0.4 else "low"
-            self.store.insert_validation(
-                {
-                    "prediction_id": row["id"],
-                    "predicted_direction": predicted,
-                    "actual_direction": actual,
-                    "predicted_magnitude": row["magnitude"],
-                    "actual_magnitude": change,
-                    "magnitude_error": None if row["magnitude"] is None else abs((row["magnitude"] or 0) - abs(change)),
-                    "confidence": row["confidence"],
-                    "calibration_bucket": bucket,
-                    "market_regime": row["market_regime"],
-                    "is_correct": predicted == actual,
-                    "reference_price": reference,
-                    "realized_price": realized,
-                    "extras": json.dumps({"change": change, "hold": "5m"}),
-                }
-            )
-            self.analytics.close_due_paper(row["id"], realized)
-            count += 1
-        if count:
-            self.store.refresh_rolling_scores("production", self.engine.strategy.name)
-        return count
+            side = trade["side"]
+            tp = trade.get("tp_price")
+            sl = trade.get("sl_price")
+            reason = None
+            if side == "UP":
+                if tp and price >= float(tp):
+                    reason = "take_profit"
+                elif sl and price <= float(sl):
+                    reason = "stop_loss"
+            elif side == "DOWN":
+                if tp and price <= float(tp):
+                    reason = "take_profit"
+                elif sl and price >= float(sl):
+                    reason = "stop_loss"
+            if reason:
+                self.analytics.close_trade(trade["id"], price, reason)
+                self._validate_trade(trade, price, reason)
+                closed += 1
+        return closed
 
-    def qualify(self) -> int:
-        gates = self.settings.default_config().get("qualification", {})
-        min_samples = int(gates.get("min_samples", 1))
-        min_hit = float(gates.get("min_hit_rate", 0.5))
-        min_score = float(gates.get("min_score", 0.0))
-        rows = self.store.rolling_scores()
-        qualified = []
-        for row in rows:
-            hit = row.get("hit_rate") or 0.0
-            samples = row.get("sample_size") or 0
-            score = row.get("score") or 0.0
-            if samples >= min_samples and hit >= min_hit and score >= min_score:
-                qualified.append(
-                    {
-                        "coin_id": row["coin_id"],
-                        "experiment_name": row["experiment_name"],
-                        "strategy_name": row["strategy_name"],
-                        "reason": f"hit_rate={hit:.2f} n={samples}",
-                        "score": score,
-                        "gates": json.dumps({"min_samples": min_samples, "min_hit_rate": min_hit}),
-                    }
-                )
-        self.store.replace_qualified(qualified, "production", self.engine.strategy.name)
-        return len(qualified)
+    def _close_all(self, reason: str) -> int:
+        closed = 0
+        for trade in self.analytics.open_trades():
+            try:
+                price = self.provider.fetch_last_price(trade["symbol"])
+            except Exception:  # noqa: BLE001
+                price = float(trade["entry_price"])
+            self.analytics.close_trade(trade["id"], price, reason)
+            self._validate_trade(trade, price, reason)
+            closed += 1
+        return closed
+
+    def _validate_trade(self, trade: dict[str, Any], exit_price: float, reason: str) -> None:
+        if not trade.get("prediction_id"):
+            return
+        entry = float(trade["entry_price"])
+        change = (exit_price - entry) / entry if entry else 0.0
+        predicted = trade["side"]
+        if change > 0.0005:
+            actual = Direction.UP.value
+        elif change < -0.0005:
+            actual = Direction.DOWN.value
+        else:
+            actual = Direction.NEUTRAL.value
+        won = (predicted == "UP" and exit_price > entry) or (predicted == "DOWN" and exit_price < entry)
+        self.store.insert_validation(
+            {
+                "prediction_id": trade["prediction_id"],
+                "predicted_direction": predicted,
+                "actual_direction": actual,
+                "predicted_magnitude": None,
+                "actual_magnitude": change,
+                "magnitude_error": None,
+                "confidence": 0.0,
+                "calibration_bucket": "mid",
+                "market_regime": None,
+                "is_correct": won or reason == "take_profit",
+                "reference_price": entry,
+                "realized_price": exit_price,
+                "extras": json.dumps({"reason": reason}),
+            }
+        )
