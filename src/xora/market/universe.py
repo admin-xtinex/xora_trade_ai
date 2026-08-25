@@ -12,12 +12,10 @@ FALLBACK = [
     "TRXUSDT", "TONUSDT", "NEARUSDT", "LTCUSDT", "ATOMUSDT",
     "SUIUSDT", "APTUSDT", "ARBUSDT", "OPUSDT", "PEPEUSDT",
     "SHIBUSDT", "UNIUSDT", "AAVEUSDT", "FILUSDT", "INJUSDT",
-    "FETUSDT", "RENDERUSDT", "WIFUSDT", "TIAUSDT", "SEIUSDT",
-    "BCHUSDT", "ETCUSDT", "XLMUSDT", "HBARUSDT", "ICPUSDT",
-    "IMXUSDT", "STXUSDT", "RUNEUSDT", "GRTUSDT", "MKRUSDT",
-    "LDOUSDT", "QNTUSDT", "EGLDUSDT", "ALGOUSDT", "VETUSDT",
-    "SANDUSDT", "MANAUSDT", "AXSUSDT", "GALAUSDT", "WLDUSDT",
 ]
+
+PER_BUCKET = 5
+UNIVERSE_SIZE = 25
 
 
 @dataclass
@@ -41,7 +39,10 @@ def _usable(symbol: str) -> bool:
 
 class BinanceUniverseBuilder:
     def __init__(self) -> None:
-        self.base_url = get_settings().binance_base_url.rstrip("/")
+        settings = get_settings()
+        self.base_url = settings.binance_base_url.rstrip("/")
+        self.size = int(settings.universe_size or UNIVERSE_SIZE)
+        self.per_bucket = max(1, self.size // 5)
 
     def fetch_tickers(self) -> list[dict]:
         url = f"{self.base_url}/api/v3/ticker/24hr"
@@ -69,7 +70,7 @@ class BinanceUniverseBuilder:
             tickers = self.fetch_tickers()
         except Exception:
             tickers = []
-        if len(tickers) < 50:
+        if len(tickers) < self.size:
             have = {t["symbol"] for t in tickers}
             for symbol in FALLBACK:
                 if symbol not in have:
@@ -79,10 +80,11 @@ class BinanceUniverseBuilder:
         by_move = sorted(tickers, key=lambda r: abs(r["change_pct"]), reverse=True)
         used: set[str] = set()
         picks: list[UniversePick] = []
+        n = self.per_bucket
 
-        def take(rows: list[dict], bucket: str, n: int) -> None:
+        def take(rows: list[dict], bucket: str, count: int) -> None:
             for row in rows:
-                if len([p for p in picks if p.bucket == bucket]) >= n:
+                if len([p for p in picks if p.bucket == bucket]) >= count:
                     break
                 if row["symbol"] in used:
                     continue
@@ -97,12 +99,11 @@ class BinanceUniverseBuilder:
                     )
                 )
 
-        take(by_change, "gainers", 10)
-        take(list(reversed(by_change)), "losers", 10)
-        take(by_move, "movers", 10)
-        take(by_volume, "volume", 10)
-        ai_pool = [r for r in by_volume if r["symbol"] not in used]
-        take(ai_pool or by_volume, "ai", 10)
-        if len(picks) < 50:
-            take(tickers, "ai", 50 - len(picks))
-        return picks[:50]
+        take(by_change, "gainers", n)
+        take(list(reversed(by_change)), "losers", n)
+        take(by_move, "movers", n)
+        take(by_volume, "volume", n)
+        take([r for r in by_volume if r["symbol"] not in used] or by_volume, "ai", n)
+        if len(picks) < self.size:
+            take(tickers, "ai", self.size - len(picks))
+        return picks[: self.size]
