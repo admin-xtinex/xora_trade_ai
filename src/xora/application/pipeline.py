@@ -39,7 +39,9 @@ class PredictionPlatform:
     def start_trading(self) -> dict[str, Any]:
         current = self.analytics.current_session()
         if current and current.get("status") in {"waiting", "live"}:
-            return {"ok": True, "session": current, "note": "session already armed", "slot": current.get("notes")}
+            self._load_picks(current)
+            if self._picks:
+                return {"ok": True, "session": current, "note": "session already armed", "slot": current.get("notes")}
         logger.info("building 50-coin universe from Binance")
         picks = self.universe_builder.build()
         self._picks = picks
@@ -70,11 +72,12 @@ class PredictionPlatform:
                 "phase": "waiting",
                 "detail": "auto-armed next IST slot",
                 "slot": armed.get("slot"),
-                "starts_at": session.get("warmup_until"),
-                "ends_at": session.get("ends_at"),
                 "universe": len(self._picks),
             }
         self._load_picks(session)
+        if not self._picks:
+            self._picks = self.universe_builder.build()
+            logger.info("rebuilt empty universe size=%s", len(self._picks))
         now = datetime.now(timezone.utc)
         live_from = _ts(session.get("warmup_until") or session.get("started_at"))
         ends_at = _ts(session["ends_at"])
@@ -84,8 +87,6 @@ class PredictionPlatform:
             return {
                 "phase": "waiting",
                 "slot": session.get("notes"),
-                "starts_at": session.get("warmup_until"),
-                "ends_at": session.get("ends_at"),
                 "engines": active,
                 "universe": len(self._picks),
                 "detail": f"waiting until {session.get('warmup_until')}",
@@ -93,13 +94,12 @@ class PredictionPlatform:
         if session.get("status") in {"waiting", "warmup"}:
             self.analytics.mark_session_live(session["id"])
             session["status"] = "live"
-            logger.info("slot live engines=%s coins=%s", active, len(self._picks))
         closed = self._manage_exits()
         if now >= ends_at:
             closed += self._close_all("session_end")
             self.analytics.close_session(session["id"])
             self.store.heartbeat()
-            return {"phase": "session_closed", "closed": closed, "engines": active, "slot": session.get("notes")}
+            return {"phase": "session_closed", "closed": closed, "universe": len(self._picks)}
         opened, errors = self._trade_universe(session)
         if errors:
             logger.warning("trade errors %s", errors[:10])
@@ -112,7 +112,6 @@ class PredictionPlatform:
             "engines": active,
             "universe": len(self._picks),
             "slot": session.get("notes"),
-            "mark": "binance_live_15m",
         }
 
     def _load_picks(self, session: dict[str, Any]) -> None:
@@ -128,6 +127,7 @@ class PredictionPlatform:
                 last_price=float(p.get("last_price") or 0),
             )
             for p in raw
+            if p.get("symbol")
         ]
 
     def _trade_universe(self, session: dict[str, Any]) -> tuple[int, list[str]]:
@@ -151,7 +151,7 @@ class PredictionPlatform:
                     self._open_with_engine(pick, session, eng, snapshot, results, coin_id, snapshot_id, feature_set_id)
                     already.add((pick.symbol, eng.key))
                     opened += 1
-                    logger.info("opened %s %s %s", eng.key, pick.symbol, session.get("notes"))
+                    logger.info("opened %s %s", eng.key, pick.symbol)
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{pick.symbol}/{eng.key}: {exc}")
         return opened, errors
@@ -214,11 +214,12 @@ class PredictionPlatform:
             ],
         )
         entry = float((snapshot.ticker or {}).get("last") or snapshot.last_price or pick.last_price)
+        if entry <= 0:
+            entry = self.provider.fetch_last_price(pick.symbol)
         tp, sl = eng.levels(decision.direction.value, entry)
         margin = self.settings.paper_margin_usdt
         lev = self.settings.paper_leverage
-        notional = margin * lev
-        qty = notional / entry if entry else 0
+        qty = (margin * lev) / entry if entry else 0
         reasons = [
             f"{c.module_name}={c.decision}"
             for c in sorted(decision.contributions, key=lambda x: abs(x.contribution), reverse=True)[:4]
@@ -232,21 +233,14 @@ class PredictionPlatform:
                 "source": pick.bucket,
                 "margin_usdt": margin,
                 "leverage": lev,
-                "notional_usdt": notional,
+                "notional_usdt": margin * lev,
                 "entry_price": entry,
                 "qty": qty,
                 "hold_minutes": 15,
                 "tp_price": tp,
                 "sl_price": sl,
                 "entry_reason": f"{eng.name} entered {decision.direction.value} on live 15m mark {entry}. score={decision.score:.3f}. " + "; ".join(reasons),
-                "analysis": {
-                    "engine": eng.key,
-                    "engine_name": eng.name,
-                    "mark": "binance_live_ticker_on_15m_candle",
-                    "slot": session.get("notes"),
-                    "score": decision.score,
-                    "modules": reasons,
-                },
+                "analysis": {"engine": eng.key, "engine_name": eng.name, "modules": reasons, "score": decision.score},
                 "session_id": session["id"],
                 "bucket": pick.bucket,
                 "engine_name": eng.key,
@@ -259,7 +253,7 @@ class PredictionPlatform:
         for trade in self.analytics.open_trades():
             try:
                 price = self.provider.fetch_last_price(trade["symbol"])
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
             eng = catalog.get(trade.get("engine_name") or "smart_ai") or catalog.get("smart_ai")
             reason = eng.should_exit(trade, price) if eng else None
@@ -274,7 +268,7 @@ class PredictionPlatform:
         for trade in self.analytics.open_trades():
             try:
                 price = self.provider.fetch_last_price(trade["symbol"])
-            except Exception:  # noqa: BLE001
+            except Exception:
                 price = float(trade["entry_price"])
             self.analytics.close_trade(trade["id"], price, reason)
             self._validate_trade(trade, price, reason)
@@ -287,12 +281,7 @@ class PredictionPlatform:
         entry = float(trade["entry_price"])
         change = (exit_price - entry) / entry if entry else 0.0
         predicted = trade["side"]
-        if change > 0.0005:
-            actual = Direction.UP.value
-        elif change < -0.0005:
-            actual = Direction.DOWN.value
-        else:
-            actual = Direction.NEUTRAL.value
+        actual = Direction.UP.value if change > 0.0005 else Direction.DOWN.value if change < -0.0005 else Direction.NEUTRAL.value
         proof = compute_pnl(predicted, entry, exit_price, float(trade.get("qty") or 0), float(trade.get("margin_usdt") or 10), int(trade.get("leverage") or 15))
         self.store.insert_validation(
             {
