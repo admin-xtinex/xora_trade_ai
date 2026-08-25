@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     cycle_seconds: int = Field(default=45, alias="XORA_CYCLE_SECONDS")
     warmup_seconds: int = Field(default=300, alias="XORA_WARMUP_SECONDS")
     session_seconds: int = Field(default=900, alias="XORA_SESSION_SECONDS")
-    universe_size: int = Field(default=50, alias="XORA_UNIVERSE_SIZE")
+    universe_size: int = Field(default=20, alias="XORA_UNIVERSE_SIZE")
     paper_margin_usdt: float = Field(default=10.0, alias="XORA_PAPER_MARGIN")
     paper_leverage: int = Field(default=15, alias="XORA_PAPER_LEVERAGE")
     paper_hold_minutes: int = Field(default=15, alias="XORA_PAPER_HOLD_MINUTES")

@@ -33,12 +33,13 @@ services:
       XORA_TIMEFRAME: 15m
       XORA_HORIZON: 15m
       XORA_CYCLE_SECONDS: "10"
+      XORA_UNIVERSE_SIZE: "20"
       XORA_PAPER_MARGIN: "10"
       XORA_PAPER_LEVERAGE: "15"
       XORA_MIN_TRADES: "3"
       LOG_LEVEL: INFO
     ports:
-      - "8000:8000"
+      - "8020:8020"
     depends_on:
       postgres:
         condition: service_healthy
@@ -58,6 +59,7 @@ services:
       XORA_TIMEFRAME: 15m
       XORA_HORIZON: 15m
       XORA_CYCLE_SECONDS: "10"
+      XORA_UNIVERSE_SIZE: "20"
       XORA_PAPER_MARGIN: "10"
       XORA_PAPER_LEVERAGE: "15"
       XORA_MIN_TRADES: "3"
