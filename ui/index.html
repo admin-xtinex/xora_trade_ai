@@ -19,12 +19,15 @@
     .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:16px 22px 0}
     .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
     .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-    main{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;padding:16px 22px 40px}
+    .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--up);margin-right:6px;box-shadow:0 0 8px var(--up)}
+    main{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;padding:16px 22px 40px}
     table{width:100%;border-collapse:collapse;font-size:13px}
     th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
     tr{cursor:pointer} tr:hover{background:#182247}
+    tr.active-row{background:#13263f}
     .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700}
     .UP{background:#123d32;color:var(--up)} .DOWN{background:#3d1820;color:var(--down)}
+    .OPEN{background:#1d3a2c;color:var(--up)} .CLOSED{background:#2a334c;color:var(--muted)}
     pre{white-space:pre-wrap;font-size:12px;color:#d5def6}
     @media(max-width:980px){main,.grid{grid-template-columns:1fr}}
   </style>
@@ -33,7 +36,7 @@
 <header>
   <div>
     <h1>XORA 15m IST desk</h1>
-    <div class="sub">Clock is Asia/Kolkata. Start trading arms the next full 15m slot. Live Binance 15m candles + ticker.</div>
+    <div class="sub">Active paper trades stay pinned at the top until TP, SL, or slot end.</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
     <span id="ws">connecting…</span>
@@ -47,14 +50,21 @@
 </section>
 <section class="grid">
   <div class="card"><div class="k">Now IST</div><div id="now">—</div></div>
-  <div class="card"><div class="k">Next / live slot</div><div id="slot">—</div></div>
+  <div class="card"><div class="k">Slot</div><div id="slot">—</div></div>
   <div class="card"><div class="k">Phase</div><div id="phase">idle</div></div>
-  <div class="card"><div class="k">Open / closed</div><div id="counts">0 / 0</div></div>
+  <div class="card"><div class="k">Active / closed</div><div id="counts">0 / 0</div></div>
   <div class="card"><div class="k">Net PnL</div><div id="pnl">0</div></div>
 </section>
+<section class="card" style="margin:16px 22px 0">
+  <div class="k"><span class="live-dot"></span>Active trades</div>
+  <div id="activeWrap" class="sub" style="margin-top:8px">No open trades yet.</div>
+</section>
 <main>
-  <div class="card" id="tableWrap"></div>
-  <div class="card" id="detail"><div class="sub">Click a trade for live fill and PnL proof.</div></div>
+  <div class="card">
+    <div class="k">Closed / history</div>
+    <div id="tableWrap" style="margin-top:8px"></div>
+  </div>
+  <div class="card" id="detail"><div class="sub">Click an active or closed trade for why entered / why exited / PnL proof.</div></div>
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
@@ -62,6 +72,18 @@
   const pctp = (v) => v == null ? "—" : Number(v).toFixed(6);
   const pill = (d) => `<span class="pill ${d || "UP"}">${d || "—"}</span>`;
   const label = (key) => (engines.find(e => e.key === key) || {}).name || key || "—";
+  function rowsHtml(rows, live) {
+    if (!rows.length) return "";
+    return `<table><thead><tr>
+      <th>Status</th><th>Engine</th><th>Coin</th><th>Side</th><th>Entry</th><th>TP</th><th>SL</th><th>Exit / mark</th><th>PnL</th>
+    </tr></thead><tbody>` + rows.map(r => `<tr class="${live ? "active-row" : ""}" data-id="${r.id}">
+      <td>${pill(r.status === "open" ? "OPEN" : "CLOSED")}</td>
+      <td>${label(r.engine_name)}</td><td>${r.symbol || r.coin_symbol || ""}</td><td>${pill(r.side)}</td>
+      <td>${pctp(r.entry_price)}</td><td>${pctp(r.tp_price)}</td><td>${pctp(r.sl_price)}</td>
+      <td>${pctp(r.exit_price)}</td>
+      <td>${r.status === "open" ? "watching" : (r.pnl_usdt == null ? "—" : Number(r.pnl_usdt).toFixed(4))}</td>
+    </tr>`).join("") + "</tbody></table>";
+  }
   async function get(path) {
     const res = await fetch(path);
     if (!res.ok) throw new Error(path + " " + res.status);
@@ -83,35 +105,29 @@
     $("phase").textContent = snap.session ? snap.session.status : "idle";
     $("counts").textContent = (snap.open_trades ?? 0) + " / " + (snap.closed_trades ?? 0);
     $("pnl").textContent = (snap.net_pnl ?? 0).toFixed(4) + " USDT";
-    const rows = await get("/api/v1/trades").catch(() => []);
-    if (!rows.length) {
-      $("tableWrap").innerHTML = "<div class='sub'>Idle until you press Start trading. Then the desk waits for the next IST 15m open.</div>";
-      return;
-    }
-    $("tableWrap").innerHTML = `<table><thead><tr>
-      <th>Engine</th><th>Coin</th><th>Side</th><th>Entry</th><th>TP</th><th>SL</th><th>Exit</th><th>PnL</th>
-    </tr></thead><tbody>` + rows.map(r => `<tr data-id="${r.id}">
-      <td>${label(r.engine_name)}</td><td>${r.symbol}</td><td>${pill(r.side)}</td>
-      <td>${pctp(r.entry_price)}</td><td>${pctp(r.tp_price)}</td><td>${pctp(r.sl_price)}</td>
-      <td>${pctp(r.exit_price)}</td><td>${r.pnl_usdt == null ? "open" : Number(r.pnl_usdt).toFixed(4)}</td>
-    </tr>`).join("") + "</tbody></table>";
+    const [openRows, closedRows] = await Promise.all([
+      get("/api/v1/trades?status=open").catch(() => []),
+      get("/api/v1/trades?status=closed").catch(() => []),
+    ]);
+    const opens = Array.isArray(openRows) ? openRows : [];
+    const closed = Array.isArray(closedRows) ? closedRows : [];
+    $("activeWrap").innerHTML = opens.length ? rowsHtml(opens, true) : "<div class='sub'>No active trades in this slot. Worker opens them when phase=live.</div>";
+    $("tableWrap").innerHTML = closed.length ? rowsHtml(closed, false) : "<div class='sub'>No closed trades yet.</div>";
   }
   async function show(id) {
     const t = await get("/api/v1/trades/" + id);
     const p = t.pnl_proof || {};
     $("detail").innerHTML = `
-      <h3 style="margin:0 0 8px">${label(t.engine_name)} · ${t.symbol} ${pill(t.side)}</h3>
+      <h3 style="margin:0 0 8px">${label(t.engine_name)} · ${t.symbol} ${pill(t.side)} ${pill(t.status === "open" ? "OPEN" : "CLOSED")}</h3>
       <p><b>Entry</b> ${pctp(t.entry_price)} · <b>Exit</b> ${pctp(t.exit_price)}<br>
       <b>TP</b> ${pctp(t.tp_price)} · <b>SL</b> ${pctp(t.sl_price)}</p>
       <p><b>Why entered:</b> ${t.why_entered || "—"}<br>
-      <b>Why exited:</b> ${t.why_exited || "still watching live candle"}<br>
+      <b>Why exited:</b> ${t.why_exited || "still open — watching live Binance price"}<br>
       <b>What went wrong:</b> ${t.what_went_wrong || "none"}</p>
       <div class="k">PnL proof</div>
       <pre>${p.worked_example || "Open trade — proof appears after exit."}
-qty = (margin ${p.margin_usdt} × lev ${p.leverage}) / entry = ${p.qty_expected}
-stored qty ${p.qty} · match ${p.qty_matches_notional}
-proof_ok = ${p.proof_ok}
-pnl on margin = ${p.pnl_pct_margin != null ? (p.pnl_pct_margin*100).toFixed(2)+"%" : "—"}</pre>`;
+qty = (margin ${p.margin_usdt ?? 10} × lev ${p.leverage ?? 15}) / entry
+proof_ok = ${p.proof_ok ?? "pending"}</pre>`;
   }
   $("engineBar").addEventListener("click", async ev => {
     const btn = ev.target.closest("[data-key]");
@@ -122,7 +138,7 @@ pnl on margin = ${p.pnl_pct_margin != null ? (p.pnl_pct_margin*100).toFixed(2)+"
     const data = await fetch("/api/v1/engines/active", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({keys: next})}).then(r => r.json());
     active = data.active; renderEngines();
   });
-  $("tableWrap").addEventListener("click", ev => {
+  document.body.addEventListener("click", ev => {
     const tr = ev.target.closest("tr[data-id]");
     if (tr) show(tr.dataset.id);
   });
@@ -131,7 +147,7 @@ pnl on margin = ${p.pnl_pct_margin != null ? (p.pnl_pct_margin*100).toFixed(2)+"
     $("start").disabled = true;
     try {
       const res = await fetch("/api/v1/admin/start", {method:"POST"}).then(r => r.json());
-      alert("Armed " + (res.slot || "next IST slot") + ". No trades until that open.");
+      alert("Armed " + (res.slot || "next IST slot"));
       await load();
     } finally { $("start").disabled = false; }
   };
@@ -142,7 +158,9 @@ pnl on margin = ${p.pnl_pct_margin != null ? (p.pnl_pct_margin*100).toFixed(2)+"
     ws.onmessage = load;
     ws.onclose = () => { $("ws").innerHTML = '<span class="bad">retry</span>'; setTimeout(connectWs, 4000); };
   }
-  load(); connectWs();
+  load();
+  connectWs();
+  setInterval(load, 5000);
 </script>
 </body>
 </html>
