@@ -174,7 +174,7 @@ class Store:
                              contribution, decision, raw_features)
                         VALUES
                             (:prediction_id, :module_name, :module_version, :weight, :confidence,
-                             :contribution, :decision, CAST(:raw_features AS jsonb)
+                             :contribution, :decision, CAST(:raw_features AS jsonb))
                         """
                     ),
                     {"prediction_id": row.id, **item},
