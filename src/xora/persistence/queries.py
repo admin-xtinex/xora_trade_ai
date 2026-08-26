@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -21,8 +21,14 @@ class Analytics:
         sql = """
             SELECT c.id AS coin_id, c.symbol,
                    COUNT(pt.id)::int AS sample_size,
-                   AVG(CASE WHEN pt.pnl_usdt > 0 THEN 1.0 WHEN pt.pnl_usdt IS NULL THEN NULL ELSE 0.0 END) AS hit_rate,
-                   AVG(pt.pnl_usdt) AS avg_pnl,
+                   COUNT(*) FILTER (WHERE pt.status = 'closed' AND pt.pnl_usdt > 0)::int AS wins,
+                   COUNT(*) FILTER (WHERE pt.status = 'closed' AND pt.pnl_usdt <= 0)::int AS losses,
+                   COUNT(*) FILTER (WHERE pt.status = 'closed')::int AS closed_trades,
+                   AVG(CASE WHEN pt.status = 'closed' AND pt.pnl_usdt > 0 THEN 1.0
+                            WHEN pt.status = 'closed' THEN 0.0
+                            ELSE NULL END) AS hit_rate,
+                   AVG(CASE WHEN pt.status = 'closed' THEN pt.pnl_usdt ELSE NULL END) AS avg_pnl,
+                   SUM(CASE WHEN pt.status = 'closed' THEN pt.pnl_usdt ELSE 0 END) AS net_pnl,
                    SUM(CASE WHEN pt.status = 'open' THEN 1 ELSE 0 END)::int AS open_trades
             FROM coins c
             LEFT JOIN paper_trades pt ON pt.coin_id = c.id

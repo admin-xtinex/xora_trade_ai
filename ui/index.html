@@ -8,31 +8,16 @@
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet" />
   <style>
     :root {
-      --bg: #05070f;
-      --panel: #0c1220;
-      --panel2: #111827;
-      --line: #1e293b;
-      --text: #f1f5f9;
-      --muted: #94a3b8;
-      --up: #22c55e;
-      --down: #ef4444;
-      --accent: #38bdf8;
-      --warn: #f59e0b;
-      --radius: 14px;
+      --bg: #05070f; --panel: #0c1220; --panel2: #111827; --line: #1e293b;
+      --text: #f1f5f9; --muted: #94a3b8; --up: #22c55e; --down: #ef4444;
+      --accent: #38bdf8; --warn: #f59e0b; --radius: 14px;
     }
     * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: "IBM Plex Sans", system-ui, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-    }
+    body { margin: 0; font-family: "IBM Plex Sans", system-ui, sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
     .top {
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
       padding: 14px 20px; border-bottom: 1px solid var(--line);
-      background: rgba(12,18,32,.92); backdrop-filter: blur(10px);
-      position: sticky; top: 0; z-index: 20;
+      background: rgba(12,18,32,.92); backdrop-filter: blur(10px); position: sticky; top: 0; z-index: 20;
     }
     .brand { display: flex; align-items: center; gap: 12px; }
     .logo {
@@ -40,39 +25,28 @@
       background: linear-gradient(135deg, #0ea5e9, #22c55e);
       display: grid; place-items: center; font-weight: 700; color: #031018;
     }
-    .brand h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: .02em; }
+    .brand h1 { margin: 0; font-size: 16px; font-weight: 700; }
     .brand p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
     .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-    .btn {
-      border: 0; border-radius: 10px; padding: 9px 14px; font-weight: 600;
-      font-size: 13px; cursor: pointer; font-family: inherit;
-    }
+    .btn { border: 0; border-radius: 10px; padding: 9px 14px; font-weight: 600; font-size: 13px; cursor: pointer; font-family: inherit; }
     .btn-primary { background: var(--accent); color: #041018; }
     .btn-ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--line); }
     .status-pill {
-      display: inline-flex; align-items: center; gap: 6px;
-      padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
-      background: #0f172a; border: 1px solid var(--line); color: var(--muted);
+      display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px;
+      font-size: 12px; font-weight: 600; background: #0f172a; border: 1px solid var(--line); color: var(--muted);
     }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
     .dot.on { background: var(--up); box-shadow: 0 0 10px var(--up); }
     .dot.off { background: var(--down); }
     .wrap { max-width: 1400px; margin: 0 auto; padding: 18px 20px 40px; }
-    .kpis {
-      display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px;
-    }
-    .kpi {
-      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-      padding: 14px 16px;
-    }
+    .kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px; }
+    .kpi { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px 16px; }
     .kpi .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
     .kpi .val { margin-top: 8px; font-size: 18px; font-weight: 700; font-family: "IBM Plex Mono", monospace; }
-    .kpi .val.up { color: var(--up); }
-    .kpi .val.down { color: var(--down); }
-    .kpi .val.warn { color: var(--warn); }
+    .kpi .val.up { color: var(--up); } .kpi .val.down { color: var(--down); } .kpi .val.warn { color: var(--warn); }
     .engines {
-      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;
-      padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; padding: 12px 14px;
+      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
     }
     .engines .lbl { font-size: 12px; color: var(--muted); margin-right: 4px; align-self: center; }
     .chip {
@@ -81,66 +55,56 @@
     }
     .chip.on { background: rgba(56,189,248,.15); border-color: var(--accent); color: var(--accent); }
     .layout { display: grid; grid-template-columns: 1.35fr .85fr; gap: 16px; }
-    .card {
-      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
-      overflow: hidden;
-    }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
     .card-h {
       display: flex; justify-content: space-between; align-items: center; gap: 10px;
-      padding: 12px 16px; border-bottom: 1px solid var(--line);
+      padding: 12px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap;
     }
     .card-h h2 { margin: 0; font-size: 14px; font-weight: 700; }
-    .badge {
-      font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px;
-      background: #1e293b; color: var(--muted);
-    }
+    .badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px; background: #1e293b; color: var(--muted); }
     .badge.live { background: rgba(34,197,94,.15); color: var(--up); }
-    .scroll { max-height: 420px; overflow: auto; }
+    .scroll { max-height: 360px; overflow: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 13px; }
     th {
-      position: sticky; top: 0; background: #0f172a; text-align: left;
-      padding: 10px 12px; color: var(--muted); font-size: 11px; text-transform: uppercase;
-      letter-spacing: .06em; border-bottom: 1px solid var(--line);
+      position: sticky; top: 0; background: #0f172a; text-align: left; padding: 10px 12px;
+      color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+      border-bottom: 1px solid var(--line);
     }
     td { padding: 11px 12px; border-bottom: 1px solid rgba(30,41,59,.7); vertical-align: middle; }
     tr { cursor: pointer; transition: background .12s; }
     tr:hover { background: rgba(56,189,248,.06); }
     tr.selected { background: rgba(56,189,248,.1); }
     .mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
-    .pill {
-      display: inline-block; padding: 2px 8px; border-radius: 999px;
-      font-size: 11px; font-weight: 700;
-    }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
     .UP, .OPEN { background: rgba(34,197,94,.15); color: var(--up); }
     .DOWN { background: rgba(239,68,68,.15); color: var(--down); }
     .CLOSED { background: #1e293b; color: var(--muted); }
-    .empty {
-      padding: 28px 16px; text-align: center; color: var(--muted); font-size: 13px;
-    }
+    .empty { padding: 28px 16px; text-align: center; color: var(--muted); font-size: 13px; }
     .detail { padding: 16px; }
     .detail h3 { margin: 0 0 12px; font-size: 16px; }
     .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
-    .box {
-      background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 12px;
-    }
+    .box { background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
     .box .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
     .box .v { margin-top: 6px; font-family: "IBM Plex Mono", monospace; font-size: 14px; font-weight: 600; }
     .section-title { margin: 14px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
-    .why {
-      background: #0b1220; border: 1px solid var(--line); border-radius: 12px;
-      padding: 12px; font-size: 13px; line-height: 1.5; margin-bottom: 10px;
-    }
+    .why { background: #0b1220; border: 1px solid var(--line); border-radius: 12px; padding: 12px; font-size: 13px; line-height: 1.5; margin-bottom: 10px; }
     pre {
-      margin: 0; white-space: pre-wrap; font-family: "IBM Plex Mono", monospace;
-      font-size: 12px; color: #cbd5e1; background: #0b1220; border: 1px solid var(--line);
-      border-radius: 12px; padding: 12px;
+      margin: 0; white-space: pre-wrap; font-family: "IBM Plex Mono", monospace; font-size: 12px; color: #cbd5e1;
+      background: #0b1220; border: 1px solid var(--line); border-radius: 12px; padding: 12px;
     }
-    .tabs { display: flex; gap: 6px; }
+    .tabs { display: flex; gap: 6px; flex-wrap: wrap; }
     .tab {
       border: 1px solid var(--line); background: transparent; color: var(--muted);
       border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
     }
     .tab.on { background: rgba(56,189,248,.12); color: var(--accent); border-color: var(--accent); }
+    .bar {
+      height: 6px; border-radius: 99px; background: #1e293b; overflow: hidden; min-width: 72px;
+    }
+    .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--down), var(--up)); }
+    .bar.win > span { background: var(--up); }
+    .bar.lose > span { background: var(--down); }
+    .bucket { font-size: 11px; color: var(--muted); }
     @media (max-width: 1100px) {
       .kpis { grid-template-columns: repeat(3, 1fr); }
       .layout { grid-template-columns: 1fr; }
@@ -182,6 +146,18 @@
       <div id="engineBar" style="display:flex;gap:8px;flex-wrap:wrap"></div>
     </div>
 
+    <div class="card" style="margin-bottom:16px">
+      <div class="card-h">
+        <h2>Selected coins · win / loss rate</h2>
+        <div class="tabs" id="coinFilters">
+          <button class="tab on" data-win="0">All</button>
+          <button class="tab" data-win="0.6">Win ≥ 60%</button>
+          <button class="tab" data-win="0.7">Win ≥ 70%</button>
+        </div>
+      </div>
+      <div class="scroll" id="coinsWrap"><div class="empty">No selected coins yet. Arm a slot to build the universe.</div></div>
+    </div>
+
     <div class="layout">
       <div>
         <div class="card" style="margin-bottom:16px">
@@ -189,7 +165,7 @@
             <h2>Active trades</h2>
             <span class="badge live" id="activeBadge">0 open</span>
           </div>
-          <div class="scroll" id="activeWrap"><div class="empty">No active trades yet. When phase is live, opens appear here.</div></div>
+          <div class="scroll" id="activeWrap"><div class="empty">No active trades yet.</div></div>
         </div>
 
         <div class="card">
@@ -207,7 +183,7 @@
       <div class="card" style="min-height:520px">
         <div class="card-h"><h2>Trade analysis</h2><span class="badge" id="detailBadge">select a trade</span></div>
         <div class="detail" id="detail">
-          <div class="empty">Click any row to see entry reason, exit reason, TP/SL, and PnL proof.</div>
+          <div class="empty">Click any trade row for entry/exit reasons and PnL proof.</div>
         </div>
       </div>
     </div>
@@ -215,13 +191,14 @@
 
 <script>
   const $ = (id) => document.getElementById(id);
-  let engines = [], active = [], histFilter = "closed", selectedId = null;
-  let openRows = [], closedRows = [], allRows = [];
+  let engines = [], active = [], histFilter = "closed", selectedId = null, winFilter = 0;
+  let openRows = [], closedRows = [], allRows = [], coinRows = [], universe = [];
 
   const pctp = (v, n = 6) => v == null || v === "" ? "—" : Number(v).toFixed(n);
   const pill = (d) => `<span class="pill ${d || "CLOSED"}">${d || "—"}</span>`;
   const label = (key) => (engines.find(e => e.key === key) || {}).name || key || "—";
   const pnlClass = (v) => v == null ? "" : Number(v) >= 0 ? "up" : "down";
+  const pct = (v) => v == null ? "—" : (Number(v) * 100).toFixed(1) + "%";
 
   async function get(path) {
     const res = await fetch(path);
@@ -256,22 +233,71 @@
       }).join("") + "</tbody></table>";
   }
 
+  function coinsHtml(rows) {
+    if (!rows.length) return `<div class="empty">No coins match this win-rate filter.</div>`;
+    return `<table>
+      <thead><tr>
+        <th>Coin</th><th>Bucket</th><th>Wins</th><th>Losses</th><th>Win rate</th><th>Net PnL</th><th>Open</th><th>Samples</th>
+      </tr></thead>
+      <tbody>` + rows.map(r => {
+        const rate = r.hit_rate == null ? 0 : Number(r.hit_rate);
+        const barCls = rate >= 0.6 ? "win" : rate > 0 ? "lose" : "";
+        return `<tr>
+          <td class="mono">${r.symbol}</td>
+          <td class="bucket">${r.bucket || "—"}</td>
+          <td class="mono" style="color:var(--up)">${r.wins ?? 0}</td>
+          <td class="mono" style="color:var(--down)">${r.losses ?? 0}</td>
+          <td>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="mono ${rate >= 0.6 ? "up" : rate > 0 ? "down" : ""}" style="min-width:52px">${pct(r.hit_rate)}</span>
+              <div class="bar ${barCls}"><span style="width:${Math.min(100, rate * 100)}%"></span></div>
+            </div>
+          </td>
+          <td class="mono ${pnlClass(r.net_pnl)}">${r.net_pnl == null ? "—" : Number(r.net_pnl).toFixed(4)}</td>
+          <td class="mono">${r.open_trades ?? 0}</td>
+          <td class="mono">${r.closed_trades ?? r.sample_size ?? 0}</td>
+        </tr>`;
+      }).join("") + "</tbody></table>";
+  }
+
   function renderEngines() {
     $("engineBar").innerHTML = engines.map(e =>
       `<button class="chip ${active.includes(e.key) ? "on" : ""}" data-key="${e.key}">${e.name}</button>`
     ).join("") || "<span style='color:var(--muted);font-size:12px'>No engines loaded</span>";
   }
 
-  function renderTables() {
-    $("activeWrap").innerHTML = openRows.length
-      ? rowsHtml(openRows)
-      : `<div class="empty">No active trades. Worker opens them when phase = live.</div>`;
-    $("activeBadge").textContent = openRows.length + " open";
+  function filteredCoins() {
+    const statsBySymbol = Object.fromEntries(coinRows.map(c => [c.symbol, c]));
+    let rows = universe.length
+      ? universe.map(u => {
+          const s = statsBySymbol[u.symbol] || {};
+          return {
+            symbol: u.symbol,
+            bucket: u.bucket || u.source || "—",
+            wins: s.wins ?? 0,
+            losses: s.losses ?? 0,
+            hit_rate: s.hit_rate,
+            net_pnl: s.net_pnl,
+            open_trades: s.open_trades ?? 0,
+            closed_trades: s.closed_trades ?? 0,
+            sample_size: s.sample_size ?? 0,
+          };
+        })
+      : coinRows.map(c => ({ ...c, bucket: c.bucket || "—" }));
+    if (winFilter > 0) rows = rows.filter(r => (r.hit_rate || 0) >= winFilter);
+    rows.sort((a, b) => (b.hit_rate || -1) - (a.hit_rate || -1));
+    return rows;
+  }
 
+  function renderTables() {
+    $("activeWrap").innerHTML = openRows.length ? rowsHtml(openRows) : `<div class="empty">No active trades.</div>`;
+    $("activeBadge").textContent = openRows.length + " open";
     const hist = histFilter === "all" ? allRows : closedRows;
-    $("tableWrap").innerHTML = hist.length
-      ? rowsHtml(hist)
-      : `<div class="empty">No trades in history yet.</div>`;
+    $("tableWrap").innerHTML = hist.length ? rowsHtml(hist) : `<div class="empty">No trades in history yet.</div>`;
+    const coins = filteredCoins();
+    $("coinsWrap").innerHTML = universe.length || coinRows.length
+      ? coinsHtml(coins)
+      : `<div class="empty">No selected coins yet. Arm a slot to build the 25-coin universe.</div>`;
   }
 
   async function load() {
@@ -282,8 +308,9 @@
       renderEngines();
 
       const clock = snap.clock || {};
-      const nowStr = clock.now ? new Date(clock.now).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
-      $("now").textContent = nowStr;
+      $("now").textContent = clock.now
+        ? new Date(clock.now).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+        : "—";
       $("slot").textContent = (snap.session && snap.session.notes) || clock.next_slot || "—";
       const phase = snap.session ? snap.session.status : "idle";
       $("phase").textContent = phase;
@@ -294,14 +321,22 @@
       $("pnl").textContent = pnl.toFixed(4);
       $("pnl").className = "val " + (pnl >= 0 ? "up" : "down");
 
-      const [opens, closed, all] = await Promise.all([
+      let uni = (snap.session && snap.session.universe) || [];
+      if (typeof uni === "string") {
+        try { uni = JSON.parse(uni); } catch { uni = []; }
+      }
+      universe = Array.isArray(uni) ? uni : [];
+
+      const [opens, closed, all, coins] = await Promise.all([
         get("/api/v1/trades?status=open").catch(() => []),
         get("/api/v1/trades?status=closed").catch(() => []),
         get("/api/v1/trades").catch(() => []),
+        get("/api/v1/coins").catch(() => []),
       ]);
       openRows = Array.isArray(opens) ? opens : [];
       closedRows = Array.isArray(closed) ? closed : [];
       allRows = Array.isArray(all) ? all : [];
+      coinRows = Array.isArray(coins) ? coins : [];
       renderTables();
     } catch (e) {
       console.error(e);
@@ -330,14 +365,13 @@
         <div class="section-title">Why entered</div>
         <div class="why">${t.why_entered || "—"}</div>
         <div class="section-title">Why exited</div>
-        <div class="why">${t.why_exited || (t.status === "open" ? "Still open — watching live Binance price for TP/SL" : "—")}</div>
+        <div class="why">${t.why_exited || (t.status === "open" ? "Still open — watching live Binance price" : "—")}</div>
         <div class="section-title">What went wrong</div>
         <div class="why">${t.what_went_wrong || "none"}</div>
         <div class="section-title">PnL proof</div>
         <pre>${p.worked_example || "Open trade — proof appears after exit."}
 
 margin ${p.margin_usdt ?? 10} × lev ${p.leverage ?? 15}
-qty formula: (margin × leverage) / entry
 proof_ok: ${p.proof_ok ?? "pending"}</pre>`;
     } catch (e) {
       $("detail").innerHTML = `<div class="empty">Could not load trade detail.</div>`;
@@ -352,15 +386,12 @@ proof_ok: ${p.proof_ok ?? "pending"}</pre>`;
     if (!next.length) return alert("Keep at least one engine on");
     try {
       const data = await fetch("/api/v1/engines/active", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ keys: next }),
       }).then(r => r.json());
       active = data.active || next;
       renderEngines();
-    } catch (e) {
-      alert("Could not update engines");
-    }
+    } catch (e) { alert("Could not update engines"); }
   });
 
   document.body.addEventListener("click", (ev) => {
@@ -369,7 +400,13 @@ proof_ok: ${p.proof_ok ?? "pending"}</pre>`;
     const tab = ev.target.closest(".tab[data-filter]");
     if (tab) {
       histFilter = tab.dataset.filter;
-      document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.filter === histFilter));
+      tab.parentElement.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.filter === histFilter));
+      renderTables();
+    }
+    const winTab = ev.target.closest("#coinFilters .tab[data-win]");
+    if (winTab) {
+      winFilter = Number(winTab.dataset.win || 0);
+      document.querySelectorAll("#coinFilters .tab").forEach(t => t.classList.toggle("on", t === winTab));
       renderTables();
     }
   });
@@ -391,21 +428,12 @@ proof_ok: ${p.proof_ok ?? "pending"}</pre>`;
   function connectWs() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(proto + "://" + location.host + "/ws");
-    ws.onopen = () => {
-      $("wsDot").className = "dot on";
-      $("wsText").textContent = "live";
-    };
+    ws.onopen = () => { $("wsDot").className = "dot on"; $("wsText").textContent = "live"; };
     ws.onmessage = () => load();
-    ws.onclose = () => {
-      $("wsDot").className = "dot off";
-      $("wsText").textContent = "offline";
-      setTimeout(connectWs, 4000);
-    };
+    ws.onclose = () => { $("wsDot").className = "dot off"; $("wsText").textContent = "offline"; setTimeout(connectWs, 4000); };
   }
 
-  load();
-  connectWs();
-  setInterval(load, 5000);
+  load(); connectWs(); setInterval(load, 5000);
 </script>
 </body>
 </html>
