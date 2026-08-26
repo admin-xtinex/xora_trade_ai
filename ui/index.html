@@ -4,160 +4,405 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>XORA Desk</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet" />
   <style>
-    :root { --bg:#070b16; --panel:#10182f; --line:#26345c; --text:#eaf0ff; --muted:#8ea0c7; --up:#3ee0a2; --down:#ff6b7a; --accent:#7db2ff; }
-    *{box-sizing:border-box}
-    body{margin:0;font-family:Inter,system-ui,sans-serif;background:radial-gradient(900px 500px at 0 -10%,#18244a,var(--bg));color:var(--text)}
-    header{display:flex;justify-content:space-between;gap:12px;padding:16px 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
-    h1{margin:0;font-size:18px}
-    .sub{color:var(--muted);font-size:12px;margin-top:4px}
-    button{border:0;border-radius:8px;padding:9px 12px;font-weight:700;cursor:pointer;background:var(--accent);color:#071018}
-    button.secondary{background:#1c2748;color:var(--text)}
-    .chip{background:#1c2748;color:var(--muted);border:0;border-radius:8px;padding:8px 10px;font-weight:700;cursor:pointer}
-    .chip.on{background:var(--accent);color:#071018}
-    .ok{color:var(--up)} .bad{color:var(--down)}
-    .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:16px 22px 0}
-    .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
-    .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
-    .live-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--up);margin-right:6px;box-shadow:0 0 8px var(--up)}
-    main{display:grid;grid-template-columns:1.2fr .8fr;gap:16px;padding:16px 22px 40px}
-    table{width:100%;border-collapse:collapse;font-size:13px}
-    th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
-    tr{cursor:pointer} tr:hover{background:#182247}
-    tr.active-row{background:#13263f}
-    .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700}
-    .UP{background:#123d32;color:var(--up)} .DOWN{background:#3d1820;color:var(--down)}
-    .OPEN{background:#1d3a2c;color:var(--up)} .CLOSED{background:#2a334c;color:var(--muted)}
-    pre{white-space:pre-wrap;font-size:12px;color:#d5def6}
-    @media(max-width:980px){main,.grid{grid-template-columns:1fr}}
+    :root {
+      --bg: #05070f;
+      --panel: #0c1220;
+      --panel2: #111827;
+      --line: #1e293b;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --up: #22c55e;
+      --down: #ef4444;
+      --accent: #38bdf8;
+      --warn: #f59e0b;
+      --radius: 14px;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "IBM Plex Sans", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    .top {
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      padding: 14px 20px; border-bottom: 1px solid var(--line);
+      background: rgba(12,18,32,.92); backdrop-filter: blur(10px);
+      position: sticky; top: 0; z-index: 20;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .logo {
+      width: 36px; height: 36px; border-radius: 10px;
+      background: linear-gradient(135deg, #0ea5e9, #22c55e);
+      display: grid; place-items: center; font-weight: 700; color: #031018;
+    }
+    .brand h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: .02em; }
+    .brand p { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
+    .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .btn {
+      border: 0; border-radius: 10px; padding: 9px 14px; font-weight: 600;
+      font-size: 13px; cursor: pointer; font-family: inherit;
+    }
+    .btn-primary { background: var(--accent); color: #041018; }
+    .btn-ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--line); }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 6px 10px; border-radius: 999px; font-size: 12px; font-weight: 600;
+      background: #0f172a; border: 1px solid var(--line); color: var(--muted);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+    .dot.on { background: var(--up); box-shadow: 0 0 10px var(--up); }
+    .dot.off { background: var(--down); }
+    .wrap { max-width: 1400px; margin: 0 auto; padding: 18px 20px 40px; }
+    .kpis {
+      display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 16px;
+    }
+    .kpi {
+      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+      padding: 14px 16px;
+    }
+    .kpi .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); }
+    .kpi .val { margin-top: 8px; font-size: 18px; font-weight: 700; font-family: "IBM Plex Mono", monospace; }
+    .kpi .val.up { color: var(--up); }
+    .kpi .val.down { color: var(--down); }
+    .kpi .val.warn { color: var(--warn); }
+    .engines {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px;
+      padding: 12px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+    }
+    .engines .lbl { font-size: 12px; color: var(--muted); margin-right: 4px; align-self: center; }
+    .chip {
+      border: 1px solid var(--line); background: var(--panel2); color: var(--muted);
+      border-radius: 999px; padding: 8px 12px; font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    .chip.on { background: rgba(56,189,248,.15); border-color: var(--accent); color: var(--accent); }
+    .layout { display: grid; grid-template-columns: 1.35fr .85fr; gap: 16px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .card-h {
+      display: flex; justify-content: space-between; align-items: center; gap: 10px;
+      padding: 12px 16px; border-bottom: 1px solid var(--line);
+    }
+    .card-h h2 { margin: 0; font-size: 14px; font-weight: 700; }
+    .badge {
+      font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 999px;
+      background: #1e293b; color: var(--muted);
+    }
+    .badge.live { background: rgba(34,197,94,.15); color: var(--up); }
+    .scroll { max-height: 420px; overflow: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th {
+      position: sticky; top: 0; background: #0f172a; text-align: left;
+      padding: 10px 12px; color: var(--muted); font-size: 11px; text-transform: uppercase;
+      letter-spacing: .06em; border-bottom: 1px solid var(--line);
+    }
+    td { padding: 11px 12px; border-bottom: 1px solid rgba(30,41,59,.7); vertical-align: middle; }
+    tr { cursor: pointer; transition: background .12s; }
+    tr:hover { background: rgba(56,189,248,.06); }
+    tr.selected { background: rgba(56,189,248,.1); }
+    .mono { font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+    .pill {
+      display: inline-block; padding: 2px 8px; border-radius: 999px;
+      font-size: 11px; font-weight: 700;
+    }
+    .UP, .OPEN { background: rgba(34,197,94,.15); color: var(--up); }
+    .DOWN { background: rgba(239,68,68,.15); color: var(--down); }
+    .CLOSED { background: #1e293b; color: var(--muted); }
+    .empty {
+      padding: 28px 16px; text-align: center; color: var(--muted); font-size: 13px;
+    }
+    .detail { padding: 16px; }
+    .detail h3 { margin: 0 0 12px; font-size: 16px; }
+    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+    .box {
+      background: var(--panel2); border: 1px solid var(--line); border-radius: 12px; padding: 12px;
+    }
+    .box .lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+    .box .v { margin-top: 6px; font-family: "IBM Plex Mono", monospace; font-size: 14px; font-weight: 600; }
+    .section-title { margin: 14px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
+    .why {
+      background: #0b1220; border: 1px solid var(--line); border-radius: 12px;
+      padding: 12px; font-size: 13px; line-height: 1.5; margin-bottom: 10px;
+    }
+    pre {
+      margin: 0; white-space: pre-wrap; font-family: "IBM Plex Mono", monospace;
+      font-size: 12px; color: #cbd5e1; background: #0b1220; border: 1px solid var(--line);
+      border-radius: 12px; padding: 12px;
+    }
+    .tabs { display: flex; gap: 6px; }
+    .tab {
+      border: 1px solid var(--line); background: transparent; color: var(--muted);
+      border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    .tab.on { background: rgba(56,189,248,.12); color: var(--accent); border-color: var(--accent); }
+    @media (max-width: 1100px) {
+      .kpis { grid-template-columns: repeat(3, 1fr); }
+      .layout { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 640px) {
+      .kpis { grid-template-columns: repeat(2, 1fr); }
+      .grid2 { grid-template-columns: 1fr; }
+    }
   </style>
 </head>
 <body>
-<header>
-  <div>
-    <h1>XORA 15m IST desk</h1>
-    <div class="sub">Active paper trades stay pinned at the top until TP, SL, or slot end.</div>
+  <div class="top">
+    <div class="brand">
+      <div class="logo">X</div>
+      <div>
+        <h1>XORA Trading Desk</h1>
+        <p>15m IST paper · live Binance marks · multi-engine</p>
+      </div>
+    </div>
+    <div class="actions">
+      <span class="status-pill"><span class="dot" id="wsDot"></span><span id="wsText">connecting</span></span>
+      <button class="btn btn-ghost" id="refresh">Refresh</button>
+      <button class="btn btn-primary" id="start">Start / arm slot</button>
+    </div>
   </div>
-  <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
-    <span id="ws">connecting…</span>
-    <button id="start">Start trading</button>
-    <button class="secondary" id="refresh">Refresh</button>
+
+  <div class="wrap">
+    <div class="kpis">
+      <div class="kpi"><div class="lbl">Now (IST)</div><div class="val" id="now">—</div></div>
+      <div class="kpi"><div class="lbl">Slot</div><div class="val" id="slot">—</div></div>
+      <div class="kpi"><div class="lbl">Phase</div><div class="val" id="phase">idle</div></div>
+      <div class="kpi"><div class="lbl">Active trades</div><div class="val" id="openCount">0</div></div>
+      <div class="kpi"><div class="lbl">Closed</div><div class="val" id="closedCount">0</div></div>
+      <div class="kpi"><div class="lbl">Net PnL</div><div class="val" id="pnl">0.00</div></div>
+    </div>
+
+    <div class="engines">
+      <span class="lbl">Engines</span>
+      <div id="engineBar" style="display:flex;gap:8px;flex-wrap:wrap"></div>
+    </div>
+
+    <div class="layout">
+      <div>
+        <div class="card" style="margin-bottom:16px">
+          <div class="card-h">
+            <h2>Active trades</h2>
+            <span class="badge live" id="activeBadge">0 open</span>
+          </div>
+          <div class="scroll" id="activeWrap"><div class="empty">No active trades yet. When phase is live, opens appear here.</div></div>
+        </div>
+
+        <div class="card">
+          <div class="card-h">
+            <h2>Trade history</h2>
+            <div class="tabs">
+              <button class="tab on" data-filter="closed">Closed</button>
+              <button class="tab" data-filter="all">All</button>
+            </div>
+          </div>
+          <div class="scroll" id="tableWrap"><div class="empty">No closed trades yet.</div></div>
+        </div>
+      </div>
+
+      <div class="card" style="min-height:520px">
+        <div class="card-h"><h2>Trade analysis</h2><span class="badge" id="detailBadge">select a trade</span></div>
+        <div class="detail" id="detail">
+          <div class="empty">Click any row to see entry reason, exit reason, TP/SL, and PnL proof.</div>
+        </div>
+      </div>
+    </div>
   </div>
-</header>
-<section class="card" style="margin:16px 22px 0">
-  <div class="k">Engines</div>
-  <div id="engineBar" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px"></div>
-</section>
-<section class="grid">
-  <div class="card"><div class="k">Now IST</div><div id="now">—</div></div>
-  <div class="card"><div class="k">Slot</div><div id="slot">—</div></div>
-  <div class="card"><div class="k">Phase</div><div id="phase">idle</div></div>
-  <div class="card"><div class="k">Active / closed</div><div id="counts">0 / 0</div></div>
-  <div class="card"><div class="k">Net PnL</div><div id="pnl">0</div></div>
-</section>
-<section class="card" style="margin:16px 22px 0">
-  <div class="k"><span class="live-dot"></span>Active trades</div>
-  <div id="activeWrap" class="sub" style="margin-top:8px">No open trades yet.</div>
-</section>
-<main>
-  <div class="card">
-    <div class="k">Closed / history</div>
-    <div id="tableWrap" style="margin-top:8px"></div>
-  </div>
-  <div class="card" id="detail"><div class="sub">Click an active or closed trade for why entered / why exited / PnL proof.</div></div>
-</main>
+
 <script>
   const $ = (id) => document.getElementById(id);
-  let engines = [], active = [];
-  const pctp = (v) => v == null ? "—" : Number(v).toFixed(6);
-  const pill = (d) => `<span class="pill ${d || "UP"}">${d || "—"}</span>`;
+  let engines = [], active = [], histFilter = "closed", selectedId = null;
+  let openRows = [], closedRows = [], allRows = [];
+
+  const pctp = (v, n = 6) => v == null || v === "" ? "—" : Number(v).toFixed(n);
+  const pill = (d) => `<span class="pill ${d || "CLOSED"}">${d || "—"}</span>`;
   const label = (key) => (engines.find(e => e.key === key) || {}).name || key || "—";
-  function rowsHtml(rows, live) {
-    if (!rows.length) return "";
-    return `<table><thead><tr>
-      <th>Status</th><th>Engine</th><th>Coin</th><th>Side</th><th>Entry</th><th>TP</th><th>SL</th><th>Exit / mark</th><th>PnL</th>
-    </tr></thead><tbody>` + rows.map(r => `<tr class="${live ? "active-row" : ""}" data-id="${r.id}">
-      <td>${pill(r.status === "open" ? "OPEN" : "CLOSED")}</td>
-      <td>${label(r.engine_name)}</td><td>${r.symbol || r.coin_symbol || ""}</td><td>${pill(r.side)}</td>
-      <td>${pctp(r.entry_price)}</td><td>${pctp(r.tp_price)}</td><td>${pctp(r.sl_price)}</td>
-      <td>${pctp(r.exit_price)}</td>
-      <td>${r.status === "open" ? "watching" : (r.pnl_usdt == null ? "—" : Number(r.pnl_usdt).toFixed(4))}</td>
-    </tr>`).join("") + "</tbody></table>";
-  }
+  const pnlClass = (v) => v == null ? "" : Number(v) >= 0 ? "up" : "down";
+
   async function get(path) {
     const res = await fetch(path);
     if (!res.ok) throw new Error(path + " " + res.status);
     return res.json();
   }
+
+  function rowsHtml(rows) {
+    if (!rows.length) return "";
+    return `<table>
+      <thead><tr>
+        <th>Status</th><th>Engine</th><th>Coin</th><th>Side</th>
+        <th>Entry</th><th>TP</th><th>SL</th><th>Exit</th><th>PnL</th>
+      </tr></thead>
+      <tbody>` + rows.map(r => {
+        const st = r.status === "open" ? "OPEN" : "CLOSED";
+        const sel = selectedId === r.id ? "selected" : "";
+        const pnl = r.status === "open"
+          ? "<span class='mono' style='color:var(--muted)'>watching</span>"
+          : `<span class="mono ${pnlClass(r.pnl_usdt)}">${r.pnl_usdt == null ? "—" : Number(r.pnl_usdt).toFixed(4)}</span>`;
+        return `<tr class="${sel}" data-id="${r.id}">
+          <td>${pill(st)}</td>
+          <td>${label(r.engine_name)}</td>
+          <td class="mono">${r.symbol || r.coin_symbol || ""}</td>
+          <td>${pill(r.side)}</td>
+          <td class="mono">${pctp(r.entry_price)}</td>
+          <td class="mono">${pctp(r.tp_price)}</td>
+          <td class="mono">${pctp(r.sl_price)}</td>
+          <td class="mono">${pctp(r.exit_price)}</td>
+          <td>${pnl}</td>
+        </tr>`;
+      }).join("") + "</tbody></table>";
+  }
+
   function renderEngines() {
     $("engineBar").innerHTML = engines.map(e =>
       `<button class="chip ${active.includes(e.key) ? "on" : ""}" data-key="${e.key}">${e.name}</button>`
-    ).join("");
+    ).join("") || "<span style='color:var(--muted);font-size:12px'>No engines loaded</span>";
   }
+
+  function renderTables() {
+    $("activeWrap").innerHTML = openRows.length
+      ? rowsHtml(openRows)
+      : `<div class="empty">No active trades. Worker opens them when phase = live.</div>`;
+    $("activeBadge").textContent = openRows.length + " open";
+
+    const hist = histFilter === "all" ? allRows : closedRows;
+    $("tableWrap").innerHTML = hist.length
+      ? rowsHtml(hist)
+      : `<div class="empty">No trades in history yet.</div>`;
+  }
+
   async function load() {
-    const snap = await get("/api/v1/session").catch(() => ({}));
-    engines = snap.engines || engines;
-    active = snap.active_engines || active;
-    renderEngines();
-    const clock = snap.clock || {};
-    $("now").textContent = clock.now ? new Date(clock.now).toLocaleString() : "—";
-    $("slot").textContent = (snap.session && snap.session.notes) || clock.next_slot || "—";
-    $("phase").textContent = snap.session ? snap.session.status : "idle";
-    $("counts").textContent = (snap.open_trades ?? 0) + " / " + (snap.closed_trades ?? 0);
-    $("pnl").textContent = (snap.net_pnl ?? 0).toFixed(4) + " USDT";
-    const [openRows, closedRows] = await Promise.all([
-      get("/api/v1/trades?status=open").catch(() => []),
-      get("/api/v1/trades?status=closed").catch(() => []),
-    ]);
-    const opens = Array.isArray(openRows) ? openRows : [];
-    const closed = Array.isArray(closedRows) ? closedRows : [];
-    $("activeWrap").innerHTML = opens.length ? rowsHtml(opens, true) : "<div class='sub'>No active trades in this slot. Worker opens them when phase=live.</div>";
-    $("tableWrap").innerHTML = closed.length ? rowsHtml(closed, false) : "<div class='sub'>No closed trades yet.</div>";
+    try {
+      const snap = await get("/api/v1/session").catch(() => ({}));
+      engines = snap.engines || engines;
+      active = snap.active_engines || active;
+      renderEngines();
+
+      const clock = snap.clock || {};
+      const nowStr = clock.now ? new Date(clock.now).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—";
+      $("now").textContent = nowStr;
+      $("slot").textContent = (snap.session && snap.session.notes) || clock.next_slot || "—";
+      const phase = snap.session ? snap.session.status : "idle";
+      $("phase").textContent = phase;
+      $("phase").className = "val " + (phase === "live" ? "up" : phase === "waiting" ? "warn" : "");
+      $("openCount").textContent = snap.open_trades ?? 0;
+      $("closedCount").textContent = snap.closed_trades ?? 0;
+      const pnl = Number(snap.net_pnl ?? 0);
+      $("pnl").textContent = pnl.toFixed(4);
+      $("pnl").className = "val " + (pnl >= 0 ? "up" : "down");
+
+      const [opens, closed, all] = await Promise.all([
+        get("/api/v1/trades?status=open").catch(() => []),
+        get("/api/v1/trades?status=closed").catch(() => []),
+        get("/api/v1/trades").catch(() => []),
+      ]);
+      openRows = Array.isArray(opens) ? opens : [];
+      closedRows = Array.isArray(closed) ? closed : [];
+      allRows = Array.isArray(all) ? all : [];
+      renderTables();
+    } catch (e) {
+      console.error(e);
+    }
   }
+
   async function show(id) {
-    const t = await get("/api/v1/trades/" + id);
-    const p = t.pnl_proof || {};
-    $("detail").innerHTML = `
-      <h3 style="margin:0 0 8px">${label(t.engine_name)} · ${t.symbol} ${pill(t.side)} ${pill(t.status === "open" ? "OPEN" : "CLOSED")}</h3>
-      <p><b>Entry</b> ${pctp(t.entry_price)} · <b>Exit</b> ${pctp(t.exit_price)}<br>
-      <b>TP</b> ${pctp(t.tp_price)} · <b>SL</b> ${pctp(t.sl_price)}</p>
-      <p><b>Why entered:</b> ${t.why_entered || "—"}<br>
-      <b>Why exited:</b> ${t.why_exited || "still open — watching live Binance price"}<br>
-      <b>What went wrong:</b> ${t.what_went_wrong || "none"}</p>
-      <div class="k">PnL proof</div>
-      <pre>${p.worked_example || "Open trade — proof appears after exit."}
-qty = (margin ${p.margin_usdt ?? 10} × lev ${p.leverage ?? 15}) / entry
-proof_ok = ${p.proof_ok ?? "pending"}</pre>`;
+    selectedId = id;
+    renderTables();
+    try {
+      const t = await get("/api/v1/trades/" + id);
+      const p = t.pnl_proof || {};
+      const st = t.status === "open" ? "OPEN" : "CLOSED";
+      $("detailBadge").textContent = st;
+      $("detailBadge").className = "badge " + (st === "OPEN" ? "live" : "");
+      $("detail").innerHTML = `
+        <h3>${label(t.engine_name)} · ${t.symbol || ""} ${pill(t.side)} ${pill(st)}</h3>
+        <div class="grid2">
+          <div class="box"><div class="lbl">Entry</div><div class="v">${pctp(t.entry_price)}</div></div>
+          <div class="box"><div class="lbl">Exit</div><div class="v">${pctp(t.exit_price)}</div></div>
+          <div class="box"><div class="lbl">Take profit</div><div class="v" style="color:var(--up)">${pctp(t.tp_price)}</div></div>
+          <div class="box"><div class="lbl">Stop loss</div><div class="v" style="color:var(--down)">${pctp(t.sl_price)}</div></div>
+          <div class="box"><div class="lbl">Qty</div><div class="v">${pctp(t.qty, 8)}</div></div>
+          <div class="box"><div class="lbl">PnL (USDT)</div><div class="v ${pnlClass(t.pnl_usdt)}">${t.pnl_usdt == null ? "open" : Number(t.pnl_usdt).toFixed(4)}</div></div>
+        </div>
+        <div class="section-title">Why entered</div>
+        <div class="why">${t.why_entered || "—"}</div>
+        <div class="section-title">Why exited</div>
+        <div class="why">${t.why_exited || (t.status === "open" ? "Still open — watching live Binance price for TP/SL" : "—")}</div>
+        <div class="section-title">What went wrong</div>
+        <div class="why">${t.what_went_wrong || "none"}</div>
+        <div class="section-title">PnL proof</div>
+        <pre>${p.worked_example || "Open trade — proof appears after exit."}
+
+margin ${p.margin_usdt ?? 10} × lev ${p.leverage ?? 15}
+qty formula: (margin × leverage) / entry
+proof_ok: ${p.proof_ok ?? "pending"}</pre>`;
+    } catch (e) {
+      $("detail").innerHTML = `<div class="empty">Could not load trade detail.</div>`;
+    }
   }
-  $("engineBar").addEventListener("click", async ev => {
+
+  $("engineBar").addEventListener("click", async (ev) => {
     const btn = ev.target.closest("[data-key]");
     if (!btn) return;
     const key = btn.dataset.key;
     const next = active.includes(key) ? active.filter(k => k !== key) : active.concat(key);
-    if (!next.length) return alert("Keep at least one engine");
-    const data = await fetch("/api/v1/engines/active", {method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({keys: next})}).then(r => r.json());
-    active = data.active; renderEngines();
+    if (!next.length) return alert("Keep at least one engine on");
+    try {
+      const data = await fetch("/api/v1/engines/active", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keys: next }),
+      }).then(r => r.json());
+      active = data.active || next;
+      renderEngines();
+    } catch (e) {
+      alert("Could not update engines");
+    }
   });
-  document.body.addEventListener("click", ev => {
+
+  document.body.addEventListener("click", (ev) => {
     const tr = ev.target.closest("tr[data-id]");
     if (tr) show(tr.dataset.id);
+    const tab = ev.target.closest(".tab[data-filter]");
+    if (tab) {
+      histFilter = tab.dataset.filter;
+      document.querySelectorAll(".tab").forEach(t => t.classList.toggle("on", t.dataset.filter === histFilter));
+      renderTables();
+    }
   });
+
   $("refresh").onclick = load;
   $("start").onclick = async () => {
     $("start").disabled = true;
     try {
-      const res = await fetch("/api/v1/admin/start", {method:"POST"}).then(r => r.json());
+      const res = await fetch("/api/v1/admin/start", { method: "POST" }).then(r => r.json());
       alert("Armed " + (res.slot || "next IST slot"));
       await load();
-    } finally { $("start").disabled = false; }
+    } catch (e) {
+      alert("Start failed — check API / database connection");
+    } finally {
+      $("start").disabled = false;
+    }
   };
+
   function connectWs() {
     const proto = location.protocol === "https:" ? "wss" : "ws";
     const ws = new WebSocket(proto + "://" + location.host + "/ws");
-    ws.onopen = () => $("ws").innerHTML = '<span class="ok">live</span>';
-    ws.onmessage = load;
-    ws.onclose = () => { $("ws").innerHTML = '<span class="bad">retry</span>'; setTimeout(connectWs, 4000); };
+    ws.onopen = () => {
+      $("wsDot").className = "dot on";
+      $("wsText").textContent = "live";
+    };
+    ws.onmessage = () => load();
+    ws.onclose = () => {
+      $("wsDot").className = "dot off";
+      $("wsText").textContent = "offline";
+      setTimeout(connectWs, 4000);
+    };
   }
+
   load();
   connectWs();
   setInterval(load, 5000);
