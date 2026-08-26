@@ -88,6 +88,11 @@
     .box .v { margin-top: 6px; font-family: "IBM Plex Mono", monospace; font-size: 14px; font-weight: 600; }
     .section-title { margin: 14px 0 8px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
     .why { background: #0b1220; border: 1px solid var(--line); border-radius: 12px; padding: 12px; font-size: 13px; line-height: 1.5; margin-bottom: 10px; }
+    .points { list-style: none; margin: 0; padding: 0; }
+    .points li {
+      background: #0b1220; border: 1px solid var(--line); border-radius: 10px;
+      padding: 10px 12px; margin-bottom: 8px; font-size: 13px; line-height: 1.45;
+    }
     pre {
       margin: 0; white-space: pre-wrap; font-family: "IBM Plex Mono", monospace; font-size: 12px; color: #cbd5e1;
       background: #0b1220; border: 1px solid var(--line); border-radius: 12px; padding: 12px;
@@ -98,13 +103,12 @@
       border-radius: 8px; padding: 6px 10px; font-size: 12px; font-weight: 600; cursor: pointer;
     }
     .tab.on { background: rgba(56,189,248,.12); color: var(--accent); border-color: var(--accent); }
-    .bar {
-      height: 6px; border-radius: 99px; background: #1e293b; overflow: hidden; min-width: 72px;
-    }
-    .bar > span { display: block; height: 100%; background: linear-gradient(90deg, var(--down), var(--up)); }
+    .bar { height: 6px; border-radius: 99px; background: #1e293b; overflow: hidden; min-width: 72px; }
+    .bar > span { display: block; height: 100%; }
     .bar.win > span { background: var(--up); }
     .bar.lose > span { background: var(--down); }
     .bucket { font-size: 11px; color: var(--muted); }
+    .err { color: var(--down); font-size: 12px; padding: 8px 12px; }
     @media (max-width: 1100px) {
       .kpis { grid-template-columns: repeat(3, 1fr); }
       .layout { grid-template-columns: 1fr; }
@@ -155,7 +159,7 @@
           <button class="tab" data-win="0.7">Win ≥ 70%</button>
         </div>
       </div>
-      <div class="scroll" id="coinsWrap"><div class="empty">No selected coins yet. Arm a slot to build the universe.</div></div>
+      <div class="scroll" id="coinsWrap"><div class="empty">No selected coins yet.</div></div>
     </div>
 
     <div class="layout">
@@ -183,7 +187,7 @@
       <div class="card" style="min-height:520px">
         <div class="card-h"><h2>Trade analysis</h2><span class="badge" id="detailBadge">select a trade</span></div>
         <div class="detail" id="detail">
-          <div class="empty">Click any trade row for entry/exit reasons and PnL proof.</div>
+          <div class="empty">Click any trade row for decision points, entry/exit reasons, and PnL proof.</div>
         </div>
       </div>
     </div>
@@ -199,6 +203,7 @@
   const label = (key) => (engines.find(e => e.key === key) || {}).name || key || "—";
   const pnlClass = (v) => v == null ? "" : Number(v) >= 0 ? "up" : "down";
   const pct = (v) => v == null ? "—" : (Number(v) * 100).toFixed(1) + "%";
+  const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   async function get(path) {
     const res = await fetch(path);
@@ -222,7 +227,7 @@
         return `<tr class="${sel}" data-id="${r.id}">
           <td>${pill(st)}</td>
           <td>${label(r.engine_name)}</td>
-          <td class="mono">${r.symbol || r.coin_symbol || ""}</td>
+          <td class="mono">${esc(r.symbol || r.coin_symbol || "")}</td>
           <td>${pill(r.side)}</td>
           <td class="mono">${pctp(r.entry_price)}</td>
           <td class="mono">${pctp(r.tp_price)}</td>
@@ -243,13 +248,13 @@
         const rate = r.hit_rate == null ? 0 : Number(r.hit_rate);
         const barCls = rate >= 0.6 ? "win" : rate > 0 ? "lose" : "";
         return `<tr>
-          <td class="mono">${r.symbol}</td>
-          <td class="bucket">${r.bucket || "—"}</td>
+          <td class="mono">${esc(r.symbol)}</td>
+          <td class="bucket">${esc(r.bucket || "—")}</td>
           <td class="mono" style="color:var(--up)">${r.wins ?? 0}</td>
           <td class="mono" style="color:var(--down)">${r.losses ?? 0}</td>
           <td>
             <div style="display:flex;align-items:center;gap:8px">
-              <span class="mono ${rate >= 0.6 ? "up" : rate > 0 ? "down" : ""}" style="min-width:52px">${pct(r.hit_rate)}</span>
+              <span class="mono" style="min-width:52px;color:${rate >= 0.6 ? 'var(--up)' : rate > 0 ? 'var(--down)' : 'var(--muted)'}">${pct(r.hit_rate)}</span>
               <div class="bar ${barCls}"><span style="width:${Math.min(100, rate * 100)}%"></span></div>
             </div>
           </td>
@@ -294,10 +299,9 @@
     $("activeBadge").textContent = openRows.length + " open";
     const hist = histFilter === "all" ? allRows : closedRows;
     $("tableWrap").innerHTML = hist.length ? rowsHtml(hist) : `<div class="empty">No trades in history yet.</div>`;
-    const coins = filteredCoins();
     $("coinsWrap").innerHTML = universe.length || coinRows.length
-      ? coinsHtml(coins)
-      : `<div class="empty">No selected coins yet. Arm a slot to build the 25-coin universe.</div>`;
+      ? coinsHtml(filteredCoins())
+      : `<div class="empty">No selected coins yet. Arm a slot to build the universe.</div>`;
   }
 
   async function load() {
@@ -315,20 +319,14 @@
       const phase = snap.session ? snap.session.status : "idle";
       $("phase").textContent = phase;
       $("phase").className = "val " + (phase === "live" ? "up" : phase === "waiting" ? "warn" : "");
-      $("openCount").textContent = snap.open_trades ?? 0;
-      $("closedCount").textContent = snap.closed_trades ?? 0;
-      const pnl = Number(snap.net_pnl ?? 0);
-      $("pnl").textContent = pnl.toFixed(4);
-      $("pnl").className = "val " + (pnl >= 0 ? "up" : "down");
 
       let uni = (snap.session && snap.session.universe) || [];
-      if (typeof uni === "string") {
-        try { uni = JSON.parse(uni); } catch { uni = []; }
-      }
+      if (typeof uni === "string") { try { uni = JSON.parse(uni); } catch { uni = []; } }
       universe = Array.isArray(uni) ? uni : [];
 
+      let tradeErr = null;
       const [opens, closed, all, coins] = await Promise.all([
-        get("/api/v1/trades?status=open").catch(() => []),
+        get("/api/v1/trades?status=open").catch(e => { tradeErr = String(e); return []; }),
         get("/api/v1/trades?status=closed").catch(() => []),
         get("/api/v1/trades").catch(() => []),
         get("/api/v1/coins").catch(() => []),
@@ -337,9 +335,20 @@
       closedRows = Array.isArray(closed) ? closed : [];
       allRows = Array.isArray(all) ? all : [];
       coinRows = Array.isArray(coins) ? coins : [];
+
+      $("openCount").textContent = openRows.length || (snap.open_trades ?? 0);
+      $("closedCount").textContent = closedRows.length || (snap.closed_trades ?? 0);
+      const pnl = Number(snap.net_pnl ?? 0);
+      $("pnl").textContent = pnl.toFixed(4);
+      $("pnl").className = "val " + (pnl >= 0 ? "up" : "down");
+
       renderTables();
+      if (tradeErr) {
+        $("activeWrap").innerHTML = `<div class="err">Trade API error: ${esc(tradeErr)}. Check API/DB.</div>` + $("activeWrap").innerHTML;
+      }
     } catch (e) {
       console.error(e);
+      $("activeWrap").innerHTML = `<div class="err">Load failed: ${esc(e)}</div>`;
     }
   }
 
@@ -350,10 +359,12 @@
       const t = await get("/api/v1/trades/" + id);
       const p = t.pnl_proof || {};
       const st = t.status === "open" ? "OPEN" : "CLOSED";
+      const points = Array.isArray(t.decision_points) ? t.decision_points : [];
+      const mods = Array.isArray(t.modules) ? t.modules : [];
       $("detailBadge").textContent = st;
       $("detailBadge").className = "badge " + (st === "OPEN" ? "live" : "");
       $("detail").innerHTML = `
-        <h3>${label(t.engine_name)} · ${t.symbol || ""} ${pill(t.side)} ${pill(st)}</h3>
+        <h3>${label(t.engine_name)} · ${esc(t.symbol || "")} ${pill(t.side)} ${pill(st)}</h3>
         <div class="grid2">
           <div class="box"><div class="lbl">Entry</div><div class="v">${pctp(t.entry_price)}</div></div>
           <div class="box"><div class="lbl">Exit</div><div class="v">${pctp(t.exit_price)}</div></div>
@@ -362,19 +373,26 @@
           <div class="box"><div class="lbl">Qty</div><div class="v">${pctp(t.qty, 8)}</div></div>
           <div class="box"><div class="lbl">PnL (USDT)</div><div class="v ${pnlClass(t.pnl_usdt)}">${t.pnl_usdt == null ? "open" : Number(t.pnl_usdt).toFixed(4)}</div></div>
         </div>
+        <div class="section-title">Decision engine · ${points.length || 0} points</div>
+        <ul class="points">${points.length
+          ? points.map(pt => `<li>${esc(pt)}</li>`).join("")
+          : "<li>No decision points stored for this trade (opened before this update).</li>"}</ul>
+        ${mods.length ? `<div class="section-title">Module votes</div><ul class="points">${mods.map(m =>
+          `<li><b>${esc(m.module)}</b> → ${esc(m.decision)} (contrib ${m.contribution ?? "—"})<br>${esc(m.why || "")}</li>`
+        ).join("")}</ul>` : ""}
         <div class="section-title">Why entered</div>
-        <div class="why">${t.why_entered || "—"}</div>
+        <div class="why">${esc(t.why_entered || "—")}</div>
         <div class="section-title">Why exited</div>
-        <div class="why">${t.why_exited || (t.status === "open" ? "Still open — watching live Binance price" : "—")}</div>
+        <div class="why">${esc(t.why_exited || (t.status === "open" ? "Still open — watching live Binance price" : "—"))}</div>
         <div class="section-title">What went wrong</div>
-        <div class="why">${t.what_went_wrong || "none"}</div>
+        <div class="why">${esc(t.what_went_wrong || "none")}</div>
         <div class="section-title">PnL proof</div>
-        <pre>${p.worked_example || "Open trade — proof appears after exit."}
+        <pre>${esc(p.worked_example || "Open trade — proof appears after exit.")}
 
 margin ${p.margin_usdt ?? 10} × lev ${p.leverage ?? 15}
 proof_ok: ${p.proof_ok ?? "pending"}</pre>`;
     } catch (e) {
-      $("detail").innerHTML = `<div class="empty">Could not load trade detail.</div>`;
+      $("detail").innerHTML = `<div class="err">Could not load trade detail: ${esc(e)}</div>`;
     }
   }
 
