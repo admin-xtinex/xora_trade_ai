@@ -6,6 +6,8 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+from sqlalchemy import text
+
 from xora import __version__
 from xora.application.clock import next_full_slot, now_ist, slot_label
 from xora.application.pnl import compute_pnl
@@ -42,7 +44,6 @@ class PredictionPlatform:
             self._load_picks(current)
             if self._picks:
                 return {"ok": True, "session": current, "note": "session already armed", "slot": current.get("notes")}
-        logger.info("building 50-coin universe from Binance")
         picks = self.universe_builder.build()
         self._picks = picks
         payload = [
@@ -68,29 +69,17 @@ class PredictionPlatform:
             armed = self.start_trading()
             session = armed["session"]
             self.store.heartbeat()
-            return {
-                "phase": "waiting",
-                "detail": "auto-armed next IST slot",
-                "slot": armed.get("slot"),
-                "universe": len(self._picks),
-            }
+            return {"phase": "waiting", "detail": "auto-armed next IST slot", "slot": armed.get("slot"), "universe": len(self._picks)}
         self._load_picks(session)
         if not self._picks:
             self._picks = self.universe_builder.build()
-            logger.info("rebuilt empty universe size=%s", len(self._picks))
         now = datetime.now(timezone.utc)
         live_from = _ts(session.get("warmup_until") or session.get("started_at"))
         ends_at = _ts(session["ends_at"])
         active = [e.key for e in self.engines.active()]
         if now < live_from:
             self.store.heartbeat()
-            return {
-                "phase": "waiting",
-                "slot": session.get("notes"),
-                "engines": active,
-                "universe": len(self._picks),
-                "detail": f"waiting until {session.get('warmup_until')}",
-            }
+            return {"phase": "waiting", "slot": session.get("notes"), "engines": active, "universe": len(self._picks)}
         if session.get("status") in {"waiting", "warmup"}:
             self.analytics.mark_session_live(session["id"])
             session["status"] = "live"
@@ -111,6 +100,7 @@ class PredictionPlatform:
             "errors": errors,
             "engines": active,
             "universe": len(self._picks),
+            "session_trades": self.analytics.session_trade_count(session["id"]),
             "slot": session.get("notes"),
         }
 
@@ -130,30 +120,63 @@ class PredictionPlatform:
             if p.get("symbol")
         ]
 
+    def _session_pairs(self, session_id) -> set[tuple[str, str]]:
+        with self.analytics.engine.begin() as conn:
+            rows = conn.execute(
+                text("SELECT symbol, COALESCE(engine_name, '') FROM paper_trades WHERE session_id = :sid"),
+                {"sid": session_id},
+            ).all()
+            return {(r[0], r[1]) for r in rows}
+
     def _trade_universe(self, session: dict[str, Any]) -> tuple[int, list[str]]:
         opened = 0
         errors: list[str] = []
         active = self.engines.active()
         if not active:
             return 0, ["no engine selected"]
-        already = self.analytics.open_pairs()
+        already = self._session_pairs(session["id"]) | self.analytics.open_pairs()
+        min_trades = max(self.settings.min_trades_per_session, 3)
         for pick in self._picks:
             needed = [eng for eng in active if (pick.symbol, eng.key) not in already]
             if not needed:
                 continue
+            snapshot = results = coin_id = snapshot_id = feature_set_id = None
             try:
                 snapshot, results, coin_id, snapshot_id, feature_set_id = self._analyze(pick)
             except Exception as exc:  # noqa: BLE001
-                errors.append(f"{pick.symbol}: {exc}")
-                continue
+                errors.append(f"{pick.symbol} analyze: {exc}")
             for eng in needed:
                 try:
-                    self._open_with_engine(pick, session, eng, snapshot, results, coin_id, snapshot_id, feature_set_id)
+                    if snapshot is not None:
+                        self._open_with_engine(pick, session, eng, snapshot, results, coin_id, snapshot_id, feature_set_id)
+                    else:
+                        self._open_simple(pick, session, eng)
                     already.add((pick.symbol, eng.key))
                     opened += 1
                     logger.info("opened %s %s", eng.key, pick.symbol)
                 except Exception as exc:  # noqa: BLE001
                     errors.append(f"{pick.symbol}/{eng.key}: {exc}")
+                    try:
+                        self._open_simple(pick, session, eng)
+                        already.add((pick.symbol, eng.key))
+                        opened += 1
+                    except Exception as inner:  # noqa: BLE001
+                        errors.append(f"{pick.symbol}/{eng.key} fallback: {inner}")
+        session_count = self.analytics.session_trade_count(session["id"])
+        if session_count < min_trades:
+            for pick in self._picks:
+                if session_count >= min_trades:
+                    break
+                eng = active[0]
+                if (pick.symbol, eng.key) in already:
+                    continue
+                try:
+                    self._open_simple(pick, session, eng)
+                    already.add((pick.symbol, eng.key))
+                    opened += 1
+                    session_count += 1
+                except Exception as exc:  # noqa: BLE001
+                    errors.append(f"min-fill {pick.symbol}: {exc}")
         return opened, errors
 
     def _analyze(self, pick: UniversePick):
@@ -173,6 +196,42 @@ class PredictionPlatform:
             coin_id, snapshot_id, self.registry.feature_version(), self.registry.config_version(), results
         )
         return snapshot, results, coin_id, snapshot_id, feature_set_id
+
+    def _open_simple(self, pick: UniversePick, session: dict[str, Any], eng: TradingEngine) -> None:
+        coin_id = self.store.upsert_coin(pick.symbol, "binance")
+        entry = pick.last_price or 0.0
+        try:
+            entry = self.provider.fetch_last_price(pick.symbol)
+        except Exception:
+            pass
+        if entry <= 0:
+            raise RuntimeError(f"no price for {pick.symbol}")
+        side = Direction.UP.value if pick.change_pct >= 0 else Direction.DOWN.value
+        tp, sl = eng.levels(side, entry)
+        margin = self.settings.paper_margin_usdt
+        lev = self.settings.paper_leverage
+        self.analytics.open_paper(
+            {
+                "coin_id": coin_id,
+                "prediction_id": None,
+                "symbol": pick.symbol,
+                "side": side,
+                "source": pick.bucket,
+                "margin_usdt": margin,
+                "leverage": lev,
+                "notional_usdt": margin * lev,
+                "entry_price": entry,
+                "qty": (margin * lev) / entry,
+                "hold_minutes": 15,
+                "tp_price": tp,
+                "sl_price": sl,
+                "entry_reason": f"{eng.name} fallback entry {side} at live mark {entry} using 24h change {pick.change_pct}",
+                "analysis": {"engine": eng.key, "engine_name": eng.name, "fallback": True},
+                "session_id": session["id"],
+                "bucket": pick.bucket,
+                "engine_name": eng.key,
+            }
+        )
 
     def _open_with_engine(
         self, pick, session, eng: TradingEngine, snapshot, results, coin_id, snapshot_id, feature_set_id
@@ -219,7 +278,6 @@ class PredictionPlatform:
         tp, sl = eng.levels(decision.direction.value, entry)
         margin = self.settings.paper_margin_usdt
         lev = self.settings.paper_leverage
-        qty = (margin * lev) / entry if entry else 0
         reasons = [
             f"{c.module_name}={c.decision}"
             for c in sorted(decision.contributions, key=lambda x: abs(x.contribution), reverse=True)[:4]
@@ -235,7 +293,7 @@ class PredictionPlatform:
                 "leverage": lev,
                 "notional_usdt": margin * lev,
                 "entry_price": entry,
-                "qty": qty,
+                "qty": (margin * lev) / entry,
                 "hold_minutes": 15,
                 "tp_price": tp,
                 "sl_price": sl,
@@ -304,5 +362,8 @@ class PredictionPlatform:
 
 def _ts(value):
     if isinstance(value, str):
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
     return value
