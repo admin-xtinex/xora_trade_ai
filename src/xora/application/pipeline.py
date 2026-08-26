@@ -210,6 +210,15 @@ class PredictionPlatform:
         tp, sl = eng.levels(side, entry)
         margin = self.settings.paper_margin_usdt
         lev = self.settings.paper_leverage
+        qty = (margin * lev) / entry
+        points = [
+            f"1. Engine {eng.name} chose {side} from 24h change {pick.change_pct:+.2f}% (fallback path).",
+            f"2. Live Binance mark used as entry: {entry}.",
+            f"3. TP {tp} ({eng.spec.tp_pct * 100:.2f}%) and SL {sl} ({eng.spec.sl_pct * 100:.2f}%).",
+            f"4. Size: margin {margin} USDT × {lev}x → notional {margin * lev} → qty {qty}.",
+            f"5. Bucket {pick.bucket}; full module analysis was unavailable so ticker + change drove the side.",
+            "6. Paper trade only — no exchange order was sent.",
+        ]
         self.analytics.open_paper(
             {
                 "coin_id": coin_id,
@@ -221,12 +230,19 @@ class PredictionPlatform:
                 "leverage": lev,
                 "notional_usdt": margin * lev,
                 "entry_price": entry,
-                "qty": (margin * lev) / entry,
+                "qty": qty,
                 "hold_minutes": 15,
                 "tp_price": tp,
                 "sl_price": sl,
                 "entry_reason": f"{eng.name} fallback entry {side} at live mark {entry} using 24h change {pick.change_pct}",
-                "analysis": {"engine": eng.key, "engine_name": eng.name, "fallback": True},
+                "analysis": {
+                    "engine": eng.key,
+                    "engine_name": eng.name,
+                    "fallback": True,
+                    "decision_points": points,
+                    "change_pct": pick.change_pct,
+                    "bucket": pick.bucket,
+                },
                 "session_id": session["id"],
                 "bucket": pick.bucket,
                 "engine_name": eng.key,
@@ -278,10 +294,22 @@ class PredictionPlatform:
         tp, sl = eng.levels(decision.direction.value, entry)
         margin = self.settings.paper_margin_usdt
         lev = self.settings.paper_leverage
-        reasons = [
-            f"{c.module_name}={c.decision}"
-            for c in sorted(decision.contributions, key=lambda x: abs(x.contribution), reverse=True)[:4]
+        qty = (margin * lev) / entry
+        ranked = sorted(decision.contributions, key=lambda x: abs(x.contribution), reverse=True)
+        reasons = [f"{c.module_name}={c.decision}" for c in ranked[:4]]
+        forced = bool((decision.metadata or {}).get("forced"))
+        points = [
+            f"1. Engine {eng.name} chose {decision.direction.value} at live mark {entry}.",
+            f"2. Aggregate score {decision.score:.4f}; confidence {decision.confidence:.3f}; regime {decision.market_regime}.",
+            f"3. TP {tp} ({eng.spec.tp_pct * 100:.2f}%) and SL {sl} ({eng.spec.sl_pct * 100:.2f}%).",
+            f"4. Size: margin {margin} USDT × {lev}x → qty {qty}.",
+            f"5. {'Forced side because score was inside neutral band.' if forced else 'Score cleared enter threshold — clean signal.'}",
         ]
+        for i, c in enumerate(ranked[:5], start=6):
+            points.append(
+                f"{i}. Module {c.module_name} voted {c.decision} "
+                f"(weight {c.weight}, contribution {c.contribution:+.3f}, conf {c.confidence})."
+            )
         self.analytics.open_paper(
             {
                 "coin_id": coin_id,
@@ -293,12 +321,24 @@ class PredictionPlatform:
                 "leverage": lev,
                 "notional_usdt": margin * lev,
                 "entry_price": entry,
-                "qty": (margin * lev) / entry,
+                "qty": qty,
                 "hold_minutes": 15,
                 "tp_price": tp,
                 "sl_price": sl,
-                "entry_reason": f"{eng.name} entered {decision.direction.value} on live 15m mark {entry}. score={decision.score:.3f}. " + "; ".join(reasons),
-                "analysis": {"engine": eng.key, "engine_name": eng.name, "modules": reasons, "score": decision.score},
+                "entry_reason": (
+                    f"{eng.name} entered {decision.direction.value} on live 15m mark {entry}. "
+                    f"score={decision.score:.3f}. " + "; ".join(reasons)
+                ),
+                "analysis": {
+                    "engine": eng.key,
+                    "engine_name": eng.name,
+                    "modules": reasons,
+                    "score": decision.score,
+                    "confidence": decision.confidence,
+                    "forced": forced,
+                    "regime": decision.market_regime,
+                    "decision_points": points,
+                },
                 "session_id": session["id"],
                 "bucket": pick.bucket,
                 "engine_name": eng.key,
